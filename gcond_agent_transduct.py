@@ -67,13 +67,19 @@ class GCond:
         self.num_class_dict = num_class_dict
         return labels_syn
 
-
-    def test_with_val(self, verbose=True):
+    def test_with_val(self, verbose=True, load_exist=False):
         res = []
 
-        data, device = self.data, self.device
-        feat_syn, pge, labels_syn = self.feat_syn.detach(), \
-                                self.pge, self.labels_syn
+        data, device, args = self.data, self.device, self.args
+
+        if not load_exist:
+            feat_syn, pge, labels_syn = self.feat_syn.detach(), \
+                                    self.pge, self.labels_syn
+            adj_syn = pge.inference(feat_syn)
+        else:
+            feat_syn = torch.load(f'saved_ours/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
+            adj_syn = torch.load(f'saved_ours/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
+            pge, labels_syn = self.pge, self.labels_syn
 
         # with_bn = True if args.dataset in ['ogbn-arxiv'] else False
         model = GCN(nfeat=feat_syn.shape[1], nhid=self.args.hidden, dropout=0.5,
@@ -84,9 +90,6 @@ class GCond:
             model = GCN(nfeat=feat_syn.shape[1], nhid=self.args.hidden, dropout=0.5,
                         weight_decay=0e-4, nlayers=2, with_bn=False,
                         nclass=data.nclass, device=device).to(device)
-
-        adj_syn = pge.inference(feat_syn)
-        args = self.args
 
         if self.args.save:
             torch.save(adj_syn, f'saved_ours/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
@@ -168,15 +171,14 @@ class GCond:
                                 nclass=data.nclass, dropout=args.dropout, nlayers=args.nlayers,
                                 device=self.device).to(self.device)
 
-
-            model.initialize()
+            model.initialize()  # first loop - sample initial parameters for the condensation model
 
             model_parameters = list(model.parameters())
 
             optimizer_model = torch.optim.Adam(model_parameters, lr=args.lr_model)
             model.train()
 
-            for ol in range(outer_loop):
+            for ol in range(outer_loop):  # second loop - train for this many steps
                 adj_syn = pge(self.feat_syn)
                 adj_syn_norm = utils.normalize_adj_tensor(adj_syn, sparse=False)
                 feat_syn_norm = feat_syn
@@ -193,7 +195,7 @@ class GCond:
                             module.eval() # fix mu and sigma of every BatchNorm layer
 
                 loss = torch.tensor(0.0).to(self.device)
-                for c in range(data.nclass):
+                for c in range(data.nclass):  # third loop - process each class separately
                     batch_size, n_id, adjs = data.retrieve_class_sampler(
                             c, adj, transductive=True, args=args)
                     if args.nlayers == 1:

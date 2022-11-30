@@ -137,4 +137,5 @@ dmypy.json
 def __init__(self):
 pass
 
-
+# pycharm folder
+.idea/

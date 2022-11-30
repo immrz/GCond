@@ -32,6 +32,7 @@ parser.add_argument('--inner', type=int, default=0)
 parser.add_argument('--outer', type=int, default=20)
 parser.add_argument('--save', type=int, default=0)
 parser.add_argument('--one_step', type=int, default=0)
+parser.add_argument('--load_exist', type=int, default=0)
 args = parser.parse_args()
 
 torch.cuda.set_device(args.gpu_id)
@@ -54,4 +55,7 @@ else:
 
 agent = GCond(data, args, device='cuda')
 
-agent.train()
+if not args.load_exist:
+    agent.train()
+else:
+    agent.test_with_val(load_exist=True)

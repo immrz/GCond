@@ -4,10 +4,12 @@ import random
 import time
 import argparse
 import torch
-from utils import *
+from utils import get_dataset, Transd2Ind
 import torch.nn.functional as F
 from gcond_agent_transduct import GCond
 from utils_graphsaint import DataGraphSAINT
+from utils_fairness import GroupedTrans
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu_id', type=int, default=0, help='gpu id')
@@ -32,7 +34,12 @@ parser.add_argument('--inner', type=int, default=0)
 parser.add_argument('--outer', type=int, default=20)
 parser.add_argument('--save', type=int, default=0)
 parser.add_argument('--one_step', type=int, default=0)
-parser.add_argument('--load_exist', type=int, default=0)
+parser.add_argument('--load_exist', default=False, action='store_true')
+
+# fair arguments
+parser.add_argument('--group_method', type=str, default=None, choices=['agg', 'geo'])
+parser.add_argument('--group_num', type=int, default=5)
+
 args = parser.parse_args()
 
 torch.cuda.set_device(args.gpu_id)
@@ -51,7 +58,10 @@ if args.dataset in data_graphsaint:
     data_full = data.data_full
 else:
     data_full = get_dataset(args.dataset, args.normalize_features)
-    data = Transd2Ind(data_full, keep_ratio=args.keep_ratio)
+    if args.group_method is None:
+        data = Transd2Ind(data_full, keep_ratio=args.keep_ratio)
+    else:
+        data = GroupedTrans(data_full, args.keep_ratio, args.group_method, group_num=args.group_num)
 
 agent = GCond(data, args, device='cuda')
 

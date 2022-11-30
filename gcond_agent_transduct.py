@@ -117,13 +117,23 @@ class GCond:
 
         # Full graph
         output = model.predict(data.feat_full, data.adj_full)
-        loss_test = F.nll_loss(output[data.idx_test], labels_test)
-        acc_test = utils.accuracy(output[data.idx_test], labels_test)
-        res.append(acc_test.item())
+        # loss_test = F.nll_loss(output[data.idx_test], labels_test)
+        # acc_test = utils.accuracy(output[data.idx_test], labels_test)
+        # res.append(acc_test.item())
+        test_res = self.data.compute_test_metric(output)
+        res.append(test_res['accuracy'])
         if verbose:
-            print("Test set results:",
-                  "loss= {:.4f}".format(loss_test.item()),
-                  "accuracy= {:.4f}".format(acc_test.item()))
+            # print("Test set results:",
+            #       "loss= {:.4f}".format(loss_test.item()),
+            #       "accuracy= {:.4f}".format(acc_test.item()))
+            test_msg = "Test set results: "
+            for k, v in test_res.items():
+                if isinstance(v, float):
+                    v = f'{v:.4f}'
+                elif isinstance(v, (list, tuple)):
+                    v = '[' + ','.join([f'{vi:.4f}' for vi in v]) + ']'
+                test_msg += f'{k}={v} '
+            print(test_msg)
         return res
 
     def train(self, verbose=True):

@@ -12,7 +12,8 @@ from sklearn import metrics
 import numpy as np
 import torch.nn.functional as F
 from sklearn.preprocessing import StandardScaler
-from deeprobust.graph.utils import *
+# from deeprobust.graph.utils import *
+from deeprobust.graph.utils import accuracy
 from torch_geometric.data import NeighborSampler
 from torch_geometric.utils import add_remaining_self_loops, to_undirected
 from torch_geometric.datasets import Planetoid
@@ -213,6 +214,11 @@ class Transd2Ind:
         out = self.samplers[args.nlayers-1][c].sample(batch)
         return out
 
+    def compute_test_metric(self, model_output):
+        labels_test = torch.LongTensor(self.labels_test).cuda()
+        loss_test = F.nll_loss(model_output[self.idx_test], labels_test)
+        acc_test = accuracy(model_output[self.idx_test], labels_test)
+        return {'loss': loss_test.item(), 'accuracy': acc_test.item()}
 
 
 def match_loss(gw_syn, gw_real, args, device):

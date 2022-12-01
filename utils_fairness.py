@@ -78,6 +78,8 @@ def get_geodesic_distance_community(train_idx: np.ndarray,
     for i in range(test_num):
         k = test_idx[i]  # this is the test_node_id
         for j in train_idx:
+            if j not in geodesic_matrix[k]:  # not connected
+                continue
             geo_distance[i] = min(geo_distance[i],
                                   geodesic_matrix[k][j])
     sort_res = [x[0] for x in sorted(enumerate(geo_distance), key=lambda x: x[1])]  # ascending by distance

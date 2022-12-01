@@ -7,6 +7,7 @@ import torch
 from utils import get_dataset, Transd2Ind
 import torch.nn.functional as F
 from gcond_agent_transduct import GCond
+from train_full import GCondFullData
 from utils_graphsaint import DataGraphSAINT
 from utils_fairness import GroupedTrans
 
@@ -35,10 +36,14 @@ parser.add_argument('--outer', type=int, default=20)
 parser.add_argument('--save', type=int, default=0)
 parser.add_argument('--one_step', type=int, default=0)
 parser.add_argument('--load_exist', default=False, action='store_true')
+parser.add_argument('--inner_model', default='gcn', type=str, choices=['gcn', 'appnp'])
 
 # fair arguments
 parser.add_argument('--group_method', type=str, default=None, choices=['agg', 'geo'])
 parser.add_argument('--group_num', type=int, default=5)
+
+# train with full data
+parser.add_argument('--full_data', default=False, action='store_true')
 
 args = parser.parse_args()
 
@@ -62,6 +67,11 @@ else:
         data = Transd2Ind(data_full, keep_ratio=args.keep_ratio)
     else:
         data = GroupedTrans(data_full, args.keep_ratio, args.group_method, group_num=args.group_num)
+
+if args.full_data:
+    agent = GCondFullData(data, args, device='cuda')
+    agent.train()
+    exit(0)
 
 agent = GCond(data, args, device='cuda')
 

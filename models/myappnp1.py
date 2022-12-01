@@ -232,6 +232,56 @@ class APPNP1(nn.Module):
             print('=== picking the best model according to the performance on validation ===')
         self.load_state_dict(weights)
 
+    def fit_with_val2(self, features, adj, labels, data, train_iters=200, verbose=False, **kwargs):
+        self.initialize()
+
+        if type(adj) is not torch.Tensor:
+            features, adj, labels = utils.to_tensor(features, adj, labels, device=self.device)
+        else:
+            features = features.to(self.device)
+            adj = adj.to(self.device)
+            labels = labels.to(self.device)
+
+        if utils.is_sparse_tensor(adj):
+            adj_norm = utils.normalize_adj_tensor(adj, sparse=True)
+        else:
+            adj_norm = utils.normalize_adj_tensor(adj)
+
+        if verbose:
+            print('=== training appnp model ===')
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+
+        best_acc_val = 0
+
+        for i in range(train_iters):
+            if i == train_iters // 2:
+                lr = self.lr*0.1
+                optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=self.weight_decay)
+
+            self.train()
+            optimizer.zero_grad()
+            output = self.forward(features, adj_norm)
+            loss_train = F.nll_loss(output[data.idx_train], labels[data.idx_train])
+            loss_train.backward()
+            optimizer.step()
+
+            if verbose and i % 10 == 0:
+                print('Epoch {}, training loss: {}'.format(i, loss_train.item()))
+
+            self.eval()
+            with torch.no_grad():
+                output = self.forward(features, adj_norm)
+            loss_val = F.nll_loss(output[data.idx_val], labels[data.idx_val])
+            acc_val = utils.accuracy(output[data.idx_val], labels[data.idx_val])
+
+            if acc_val > best_acc_val:
+                best_acc_val = acc_val
+                self.output = output
+                weights = deepcopy(self.state_dict())
+
+        if verbose:
+            print('=== picking the best model according to the performance on validation ===')
+        self.load_state_dict(weights)
 
     def test(self, idx_test):
         """Evaluate GCN performance on test set.

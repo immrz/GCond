@@ -10,6 +10,7 @@ from copy import deepcopy
 import numpy as np
 from tqdm import tqdm
 from models.gcn import GCN
+from models.myappnp1 import APPNP1
 from models.sgc import SGC
 from models.sgc_multi import SGC as SGC1
 from models.parametrized_adj import PGE
@@ -82,9 +83,12 @@ class GCond:
             pge, labels_syn = self.pge, self.labels_syn
 
         # with_bn = True if args.dataset in ['ogbn-arxiv'] else False
-        model = GCN(nfeat=feat_syn.shape[1], nhid=self.args.hidden, dropout=0.5,
-                    weight_decay=5e-4, nlayers=2,
-                    nclass=data.nclass, device=device).to(device)
+        model_class = {'gcn': GCN, 'appnp': APPNP1}[args.inner_model]
+        # dropout = 0.5  # NOTE: uncommenting this would cause changes to non-GCN results
+        dropout = 0.5 if args.inner_model == 'gcn' else 0.
+        model = model_class(nfeat=feat_syn.shape[1], nhid=self.args.hidden, dropout=dropout,
+                            weight_decay=5e-4, nlayers=2,
+                            nclass=data.nclass, device=device).to(device)
 
         if self.args.dataset in ['ogbn-arxiv']:
             model = GCN(nfeat=feat_syn.shape[1], nhid=self.args.hidden, dropout=0.5,
@@ -100,7 +104,7 @@ class GCond:
             adj_syn = torch.zeros((n, n))
 
         model.fit_with_val(feat_syn, adj_syn, labels_syn, data,
-                     train_iters=600, normalize=True, verbose=False)
+                           train_iters=600, normalize=True, verbose=False)
 
         model.eval()
         labels_test = torch.LongTensor(data.labels_test).cuda()

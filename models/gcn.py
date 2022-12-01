@@ -301,6 +301,40 @@ class GCN(nn.Module):
             self.adj_norm = adj
             return self.forward(self.features, self.adj_norm)
 
+    def fit_with_val2(self, features, adj, labels, data, train_iters=200, verbose=False, **kwargs):
+        '''data: full data class'''
+        self.initialize()
+
+        if type(adj) is not torch.Tensor:
+            features, adj, labels = utils.to_tensor(features, adj, labels, device=self.device)
+        else:
+            features = features.to(self.device)
+            adj = adj.to(self.device)
+            labels = labels.to(self.device)
+
+        if utils.is_sparse_tensor(adj):
+            adj_norm = utils.normalize_adj_tensor(adj, sparse=True)
+        else:
+            adj_norm = utils.normalize_adj_tensor(adj)
+
+        if 'feat_norm' in kwargs and kwargs['feat_norm']:
+            from utils import row_normalize_tensor
+            features = row_normalize_tensor(features - features.min())
+
+        self.adj_norm = adj_norm
+        self.features = features
+
+        if len(labels.shape) > 1:
+            self.multi_label = True
+            self.loss = torch.nn.BCELoss()
+        else:
+            self.multi_label = False
+            self.loss = F.nll_loss
+
+        labels = labels.float() if self.multi_label else labels
+        self.labels = labels
+
+        self._train_with_val2(labels, data.idx_train, data.idx_val, train_iters, verbose)
 
     def _train_with_val2(self, labels, idx_train, idx_val, train_iters, verbose):
         if verbose:
@@ -326,7 +360,8 @@ class GCN(nn.Module):
                 print('Epoch {}, training loss: {}'.format(i, loss_train.item()))
 
             self.eval()
-            output = self.forward(self.features, self.adj_norm)
+            with torch.no_grad():
+                output = self.forward(self.features, self.adj_norm)
             loss_val = F.nll_loss(output[idx_val], labels[idx_val])
             acc_val = utils.accuracy(output[idx_val], labels[idx_val])
 

@@ -78,8 +78,8 @@ class GCond:
                                     self.pge, self.labels_syn
             adj_syn = pge.inference(feat_syn)
         else:
-            feat_syn = torch.load(f'saved_ours/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
-            adj_syn = torch.load(f'saved_ours/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
+            feat_syn = torch.load(f'{args.save_dir}/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
+            adj_syn = torch.load(f'{args.save_dir}/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
             pge, labels_syn = self.pge, self.labels_syn
 
         # with_bn = True if args.dataset in ['ogbn-arxiv'] else False
@@ -96,8 +96,8 @@ class GCond:
                         nclass=data.nclass, device=device).to(device)
 
         if self.args.save:
-            torch.save(adj_syn, f'saved_ours/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
-            torch.save(feat_syn, f'saved_ours/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
+            torch.save(adj_syn, f'{args.save_dir}/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
+            torch.save(feat_syn, f'{args.save_dir}/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
 
         if self.args.lr_adj == 0:
             n = len(labels_syn)

@@ -1,5 +1,4 @@
 import os.path as osp
-import numpy as np
 import scipy.sparse as sp
 import torch
 import torch_geometric.transforms as T
@@ -14,9 +13,10 @@ import torch.nn.functional as F
 from sklearn.preprocessing import StandardScaler
 # from deeprobust.graph.utils import *
 from deeprobust.graph.utils import accuracy
-from torch_geometric.data import NeighborSampler
+from torch_geometric.data import NeighborSampler, Data
 from torch_geometric.utils import add_remaining_self_loops, to_undirected
 from torch_geometric.datasets import Planetoid
+import pandas as pd
 
 
 def get_dataset(name, normalize_features=False, transform=None, if_dpr=True):
@@ -25,6 +25,11 @@ def get_dataset(name, normalize_features=False, transform=None, if_dpr=True):
         dataset = Planetoid(path, name)
     elif name in ['ogbn-arxiv']:
         dataset = PygNodePropPredDataset(name='ogbn-arxiv')
+    elif name in ['pokec_z', 'pokec_n']:
+        graph = load_pokec(dataset='region_job' if name == 'pokec_z' else 'region_job_2',
+                           sens_attr='region',
+                           predict_attr='I_am_working_in_field')
+        dataset = SimplePygDataWrapper(name=name, graph=graph)
     else:
         raise NotImplementedError
 
@@ -45,6 +50,9 @@ def get_dataset(name, normalize_features=False, transform=None, if_dpr=True):
         scaler.fit(feat_train)
         feat = scaler.transform(feat)
         dpr_data.features = feat
+    elif name in ['pokec_z', 'pokec_n']:
+        # for pokec dataset, append the sensitive attributes list
+        dpr_data.sens = dataset[0].sens
 
     return dpr_data
 
@@ -216,8 +224,16 @@ class Transd2Ind:
 
     def compute_test_metric(self, model_output):
         labels_test = torch.LongTensor(self.labels_test).cuda()
-        loss_test = F.nll_loss(model_output[self.idx_test], labels_test)
-        acc_test = accuracy(model_output[self.idx_test], labels_test)
+
+        # multi-classification
+        if model_output.shape[1] > 1:
+            loss_test = F.nll_loss(model_output[self.idx_test], labels_test)
+            acc_test = accuracy(model_output[self.idx_test], labels_test)
+        else:
+            labels_test = labels_test.unsqueeze(1)
+            loss_test = F.binary_cross_entropy_with_logits(model_output[self.idx_test], labels_test.float())
+            pred_test = (model_output[self.idx_test] >= 0).int()
+            acc_test = (pred_test == labels_test).double().mean()
         return {'loss': loss_test.item(), 'accuracy': acc_test.item()}
 
 
@@ -387,3 +403,100 @@ def row_normalize_tensor(mx):
     return mx
 
 
+class SimplePygDataWrapper:
+    def __init__(self, name, graph):
+        self.name = name
+        self.graph = graph
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, item):
+        if item >= 1:
+            raise ValueError
+        return self.graph
+
+
+def load_pokec(dataset, sens_attr, predict_attr, path="./data/pokec/", label_number=500):
+    """Load data"""
+    print('Loading {} dataset from {}'.format(dataset, path))
+
+    idx_features_labels = pd.read_csv(osp.join(path, "{}.csv".format(dataset)))
+    header = list(idx_features_labels.columns)
+    header.remove("user_id")
+
+    header.remove(sens_attr)
+    header.remove(predict_attr)
+
+    features = sp.csr_matrix(idx_features_labels[header], dtype=np.float32)
+    labels = idx_features_labels[predict_attr].values
+
+    # build graph
+    idx = np.array(idx_features_labels["user_id"], dtype=int)
+    idx_map = {j: i for i, j in enumerate(idx)}  # user_id -> order
+    edges_unordered = np.genfromtxt(osp.join(path, "{}_relationship.txt".format(dataset)), dtype=int)
+
+    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
+                     dtype=int).reshape(edges_unordered.shape)  # shape (E, 2)
+    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
+                        shape=(labels.shape[0], labels.shape[0]),
+                        dtype=np.float32)
+    # build symmetric adjacency matrix
+    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
+
+    # features = normalize(features)
+    # adj = adj + sp.eye(adj.shape[0])  # would normalize later
+
+    features = torch.FloatTensor(np.array(features.todense()))
+    labels = torch.LongTensor(labels)
+    # adj = sparse_mx_to_torch_sparse_tensor(adj)
+
+    label_idx = np.where(labels >= 0)[0]
+    np.random.shuffle(label_idx)
+
+    idx_train = label_idx[:min(int(0.5 * len(label_idx)), label_number)]  # at most half of all data
+    idx_val = label_idx[int(0.5 * len(label_idx)):int(0.75 * len(label_idx))]  # a quarter of all data
+    idx_test = label_idx[int(0.75 * len(label_idx)):]
+
+    sens = idx_features_labels[sens_attr].values
+
+    sens_idx = set(np.where(sens >= 0)[0])
+    idx_test = np.asarray(list(sens_idx & set(idx_test)))
+    sens = torch.FloatTensor(sens)
+    # idx_sens_train = list(sens_idx - set(idx_val) - set(idx_test))
+    # random.seed(seed)
+    # random.shuffle(idx_sens_train)
+    # idx_sens_train = torch.LongTensor(idx_sens_train[:sens_number])
+
+    # idx_train = torch.LongTensor(idx_train)
+    # idx_val = torch.LongTensor(idx_val)
+    # idx_test = torch.LongTensor(idx_test)
+
+    # random.shuffle(sens_idx)
+
+    train_mask, val_mask, test_mask = (np.zeros(labels.shape[0]).astype(bool) for _ in range(3))
+    train_mask[idx_train] = True
+    val_mask[idx_val] = True
+    test_mask[idx_test] = True
+    train_mask = torch.from_numpy(train_mask)
+    val_mask = torch.from_numpy(val_mask)
+    test_mask = torch.from_numpy(test_mask)
+
+    # convert adj to (2, E)-shaped coo tensor
+    adj_coo = adj.tocoo()
+    adj_coo = np.stack([adj_coo.row, adj_coo.col], axis=0)
+    adj = torch.LongTensor(adj_coo)
+
+    # binarize labels, map those greater than 1 to 1
+    labels[labels > 1] = 1
+    sens[sens > 0] = 1
+
+    pyg_data = Data(x=features,
+                    y=labels,
+                    edge_index=adj,
+                    train_mask=train_mask,
+                    val_mask=val_mask,
+                    test_mask=test_mask,
+                    sens=sens)
+
+    return pyg_data

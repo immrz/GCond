@@ -10,6 +10,7 @@ from gcond_agent_transduct import GCond
 from train_full import GCondFullData
 from utils_graphsaint import DataGraphSAINT
 from utils_fairness import GroupedTrans
+import wandb
 
 
 parser = argparse.ArgumentParser()
@@ -25,6 +26,7 @@ parser.add_argument('--lr_model', type=float, default=0.01)
 parser.add_argument('--weight_decay', type=float, default=0.0)
 parser.add_argument('--dropout', type=float, default=0.0)
 parser.add_argument('--normalize_features', type=bool, default=True)
+parser.add_argument('--no_norm_feat', dest='normalize_features', action='store_false')
 parser.add_argument('--keep_ratio', type=float, default=1.0)
 parser.add_argument('--reduction_rate', type=float, default=1)
 parser.add_argument('--seed', type=int, default=15, help='Random seed.')
@@ -34,9 +36,10 @@ parser.add_argument('--sgc', type=int, default=1)
 parser.add_argument('--inner', type=int, default=0)
 parser.add_argument('--outer', type=int, default=20)
 parser.add_argument('--save', type=int, default=0)
+parser.add_argument('--save_dir', type=str, default='saved_ours')
 parser.add_argument('--one_step', type=int, default=0)
 parser.add_argument('--load_exist', default=False, action='store_true')
-parser.add_argument('--inner_model', default='gcn', type=str, choices=['gcn', 'appnp'])
+parser.add_argument('--inner_model', default='gcn', type=str, choices=['gcn', 'appnp', 'gcn_pokec'])
 
 # fair arguments
 parser.add_argument('--group_method', type=str, default=None, choices=['agg', 'geo'])
@@ -44,6 +47,12 @@ parser.add_argument('--group_num', type=int, default=5)
 
 # train with full data
 parser.add_argument('--full_data', default=False, action='store_true')
+parser.add_argument('--full_data_epoch', type=int, default=1000)
+parser.add_argument('--full_data_lr', type=float, default=0.01)
+parser.add_argument('--full_data_wd', type=float, default=5e-4)
+
+# use wandb logging
+parser.add_argument('--wandb', type=str, default='disabled', choices=['online', 'offline', 'disabled'])
 
 args = parser.parse_args()
 
@@ -56,6 +65,17 @@ torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 
 print(args)
+
+# init wandb
+wandb_config_keys = ['dataset', 'epochs', 'nlayers', 'hidden', 'lr_adj', 'lr_feat', 'lr_model',
+                     'weight_decay', 'dropout', 'normalize_features', 'reduction_rate', 'seed',
+                     'alpha', 'sgc', 'inner', 'outer', 'inner_model', 'group_method', 'group_num',
+                     'full_data', 'full_data_epoch', 'full_data_lr', 'full_data_wd']
+wandb_config = {k: getattr(args, k) for k in wandb_config_keys}
+wandb.init(mode=args.wandb,
+           project='FairGCond',
+           group='Full Data' if args.full_data else 'Condensed',
+           config=wandb_config)
 
 data_graphsaint = ['flickr', 'reddit', 'ogbn-arxiv']
 if args.dataset in data_graphsaint:

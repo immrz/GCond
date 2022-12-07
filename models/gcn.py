@@ -10,6 +10,7 @@ from copy import deepcopy
 from sklearn.metrics import f1_score
 from torch.nn import init
 import torch_sparse
+import wandb
 
 
 class GraphConvolution(Module):
@@ -364,6 +365,11 @@ class GCN(nn.Module):
                 output = self.forward(self.features, self.adj_norm)
             loss_val = F.nll_loss(output[idx_val], labels[idx_val])
             acc_val = utils.accuracy(output[idx_val], labels[idx_val])
+
+            # logging
+            wandb.log({'loss_train': loss_train.item(),
+                       'loss_val': loss_val.item(),
+                       'acc_val': acc_val.item()})
 
             if acc_val > best_acc_val:
                 best_acc_val = acc_val

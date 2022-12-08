@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -16,6 +15,7 @@ from models.sgc_multi import SGC as SGC1
 from models.parametrized_adj import PGE
 import scipy.sparse as sp
 from torch_sparse import SparseTensor
+import wandb
 
 
 class GCond:
@@ -24,6 +24,7 @@ class GCond:
         self.data = data
         self.args = args
         self.device = device
+        self.global_step = 0
 
         # n = data.nclass * args.nsamples
         n = int(data.feat_train.shape[0] * args.reduction_rate)
@@ -69,7 +70,7 @@ class GCond:
         return labels_syn
 
     def test_with_val(self, verbose=True, load_exist=False):
-        res = []
+        res = {}
 
         data, device, args = self.data, self.device, self.args
 
@@ -115,9 +116,10 @@ class GCond:
         acc_train = utils.accuracy(output, labels_train)
         if verbose:
             print("Train set results:",
-                  "loss= {:.4f}".format(loss_train.item()),
-                  "accuracy= {:.4f}".format(acc_train.item()))
-        res.append(acc_train.item())
+                  "loss={:.4f}".format(loss_train.item()),
+                  "accuracy={:.4f}".format(acc_train.item()))
+        # res.append(acc_train.item())
+        res['acc_train'] = acc_train.item()
 
         # Full graph
         output = model.predict(data.feat_full, data.adj_full)
@@ -125,7 +127,7 @@ class GCond:
         # acc_test = utils.accuracy(output[data.idx_test], labels_test)
         # res.append(acc_test.item())
         test_res = self.data.compute_test_metric(output)
-        res.append(test_res['accuracy'])
+        # res.append(test_res['accuracy'])
         if verbose:
             # print("Test set results:",
             #       "loss= {:.4f}".format(loss_test.item()),
@@ -133,6 +135,7 @@ class GCond:
             test_msg = "Test set results: "
             for k, v in test_res.items():
                 if isinstance(v, float):
+                    res[k + '_test'] = v
                     v = f'{v:.4f}'
                 elif isinstance(v, (list, tuple)):
                     v = '[' + ','.join([f'{vi:.4f}' for vi in v]) + ']'
@@ -151,6 +154,7 @@ class GCond:
 
         features, adj, labels = utils.to_tensor(features, adj, labels, device=self.device)
 
+        # initialize feat_syn with original node features of the same classes
         feat_sub, adj_sub = self.get_sub_adj_feat(features)
         self.feat_syn.data.copy_(feat_sub)
 
@@ -160,29 +164,41 @@ class GCond:
             adj_norm = utils.normalize_adj_tensor(adj)
 
         adj = adj_norm
-        adj = SparseTensor(row=adj._indices()[0], col=adj._indices()[1],
-                value=adj._values(), sparse_sizes=adj.size()).t()
-
+        adj = SparseTensor(row=adj._indices()[0],
+                           col=adj._indices()[1],
+                           value=adj._values(),
+                           sparse_sizes=adj.size()).t()
 
         outer_loop, inner_loop = get_loops(args)
-        loss_avg = 0
+        self.global_step = 0
 
         for it in range(args.epochs+1):
+            loss_avg = 0  # loss over one epoch of training condensed graph
+
             if args.dataset in ['ogbn-arxiv']:
-                model = SGC1(nfeat=feat_syn.shape[1], nhid=self.args.hidden,
-                            dropout=0.0, with_bn=False,
-                            weight_decay=0e-4, nlayers=2,
-                            nclass=data.nclass,
-                            device=self.device).to(self.device)
+                model = SGC1(nfeat=feat_syn.shape[1],
+                             nhid=self.args.hidden,
+                             dropout=0.0,
+                             with_bn=False,
+                             weight_decay=0e-4,
+                             nlayers=2,
+                             nclass=data.nclass,
+                             device=self.device).to(self.device)
             else:
                 if args.sgc == 1:
-                    model = SGC(nfeat=data.feat_train.shape[1], nhid=args.hidden,
-                                nclass=data.nclass, dropout=args.dropout,
-                                nlayers=args.nlayers, with_bn=False,
+                    model = SGC(nfeat=data.feat_train.shape[1],
+                                nhid=args.hidden,
+                                nclass=data.nclass,
+                                dropout=args.dropout,
+                                nlayers=args.nlayers,
+                                with_bn=False,
                                 device=self.device).to(self.device)
                 else:
-                    model = GCN(nfeat=data.feat_train.shape[1], nhid=args.hidden,
-                                nclass=data.nclass, dropout=args.dropout, nlayers=args.nlayers,
+                    model = GCN(nfeat=data.feat_train.shape[1],
+                                nhid=args.hidden,
+                                nclass=data.nclass,
+                                dropout=args.dropout,
+                                nlayers=args.nlayers,
                                 device=self.device).to(self.device)
 
             model.initialize()  # first loop - sample initial parameters for the condensation model
@@ -208,7 +224,7 @@ class GCond:
                         if 'BatchNorm' in module._get_name():  #BatchNorm
                             module.eval() # fix mu and sigma of every BatchNorm layer
 
-                loss = torch.tensor(0.0).to(self.device)
+                loss = torch.tensor(0.0).to(self.device)  # loss over all classes
                 for c in range(data.nclass):  # third loop - process each class separately
                     batch_size, n_id, adjs = data.retrieve_class_sampler(
                             c, adj, transductive=True, args=args)
@@ -229,9 +245,12 @@ class GCond:
                             labels_syn[ind[0]: ind[1]])
                     gw_syn = torch.autograd.grad(loss_syn, model_parameters, create_graph=True)
                     coeff = self.num_class_dict[c] / max(self.num_class_dict.values())
-                    loss += coeff  * match_loss(gw_syn, gw_real, args, device=self.device)
+                    loss += coeff * match_loss(gw_syn, gw_real, args, device=self.device)
 
                 loss_avg += loss.item()
+                wandb.log({'loss_grad_match': loss.item()}, step=self.global_step)
+                self.global_step += 1
+
                 # TODO: regularize
                 if args.alpha > 0:
                     loss_reg = args.alpha * regularization(adj_syn, utils.tensor2onehot(labels_syn))
@@ -269,33 +288,33 @@ class GCond:
                     # print(loss_syn_inner.item())
                     optimizer_model.step() # update gnn param
 
-
             loss_avg /= (data.nclass*outer_loop)
             if it % 50 == 0:
                 print('Epoch {}, loss_avg: {}'.format(it, loss_avg))
 
-            eval_epochs = [400, 600, 800, 1000, 1200, 1600, 2000, 3000, 4000, 5000]
-
+            # eval_epochs = [400, 600, 800, 1000, 1200, 1600, 2000, 3000, 4000, 5000]
+            eval_epochs = list(range(199, args.epochs, 200))
             if verbose and it in eval_epochs:
-            # if verbose and (it+1) % 50 == 0:
                 res = []
                 runs = 1 if args.dataset in ['ogbn-arxiv'] else 3
                 for i in range(runs):
-                    if args.dataset in ['ogbn-arxiv']:
-                        res.append(self.test_with_val())
-                    else:
-                        res.append(self.test_with_val())
+                    res.append(self.test_with_val())
 
-                res = np.array(res)
-                print('Train/Test Mean Accuracy:',
-                        repr([res.mean(0), res.std(0)]))
+                # res = np.array(res)
+                res = {k: np.array([_r[k] for _r in res]) for k in res[0].keys()}
+                # print('Train/Test Mean Accuracy:', repr([res.mean(0), res.std(0)]))
+                print(f"Train Mean Accuracy: ({res['acc_train'].mean():.4f}, {res['acc_train'].std():.4f})", end=', ')
+                print(f"Test Mean Accuracy: ({res['acc_test'].mean():.4f}, {res['acc_test'].std():.4f})")
+                for k in res.keys():
+                    if k.endswith('_test'):
+                        wandb.log({k: res[k].mean()}, step=self.global_step)
 
     def get_sub_adj_feat(self, features):
         data = self.data
         args = self.args
         idx_selected = []
 
-        from collections import Counter;
+        from collections import Counter
         counter = Counter(self.labels_syn.cpu().numpy())
 
         for c in range(data.nclass):

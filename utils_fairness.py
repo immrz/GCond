@@ -39,7 +39,7 @@ class GroupedTrans(Transd2Ind):
             group_acc.append(correct[group].sum().item() / len(group))
         delta = max(group_acc) - min(group_acc)
         res['delta'] = delta
-        res['group_accuracy'] = group_acc
+        res['group_acc'] = group_acc
         return res
 
 
@@ -85,3 +85,44 @@ def get_geodesic_distance_community(train_idx: np.ndarray,
     sort_res = [x[0] for x in sorted(enumerate(geo_distance), key=lambda x: x[1])]  # ascending by distance
     group_size = len(sort_res) // group_num + 1
     return [sort_res[i:i+group_size] for i in range(0, len(sort_res), group_size)]
+
+
+class BiSensAttrTrans(Transd2Ind):
+    def __init__(self, dpr_data, keep_ratio):
+        super().__init__(dpr_data, keep_ratio)
+        assert hasattr(dpr_data, 'sens')
+        self.sens = dpr_data.sens.numpy()
+        self.mask_s0 = self.sens[self.idx_test] == 0
+        self.mask_s1 = self.sens[self.idx_test] == 1
+        self.mask_s0_y1 = np.bitwise_and(self.mask_s0, self.labels_test == 1)
+        self.mask_s1_y1 = np.bitwise_and(self.mask_s1, self.labels_test == 1)
+
+        assert self.mask_s0.shape[0] > 0
+        assert self.mask_s1.shape[0] > 0
+        assert self.mask_s0_y1.shape[0] > 0
+        assert self.mask_s1_y1.shape[0] > 0
+
+    def compute_test_metric(self, model_output):
+        res = super().compute_test_metric(model_output)
+
+        if model_output.shape[1] == 1:
+            # sigmoid is used for binary classification
+            preds = (model_output[self.idx_test] >= 0).int().squeeze()
+        else:
+            # softmax is used
+            preds = model_output[self.idx_test].max(1)[1]
+        labels = torch.LongTensor(self.labels_test).cuda()
+        correct = torch.eq(preds, labels).double()
+        acc_s0 = correct[self.mask_s0].mean().item()
+        acc_s1 = correct[self.mask_s1].mean().item()
+
+        preds = preds.double()
+        parity = abs(preds[self.mask_s0].mean().item() -
+                     preds[self.mask_s1].mean().item())
+        equality = abs(preds[self.mask_s0_y1].mean().item() -
+                       preds[self.mask_s1_y1].mean().item())
+        res['acc_s0'] = acc_s0
+        res['acc_s1'] = acc_s1
+        res['parity'] = parity
+        res['equality'] = equality
+        return res

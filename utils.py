@@ -234,7 +234,7 @@ class Transd2Ind:
             loss_test = F.binary_cross_entropy_with_logits(model_output[self.idx_test], labels_test.float())
             pred_test = (model_output[self.idx_test] >= 0).int()
             acc_test = (pred_test == labels_test).double().mean()
-        return {'loss': loss_test.item(), 'accuracy': acc_test.item()}
+        return {'loss': loss_test.item(), 'acc': acc_test.item()}
 
 
 def match_loss(gw_syn, gw_real, args, device):
@@ -462,7 +462,8 @@ def load_pokec(dataset, sens_attr, predict_attr, path="./data/pokec/", label_num
 
     sens_idx = set(np.where(sens >= 0)[0])
     idx_test = np.asarray(list(sens_idx & set(idx_test)))
-    sens = torch.FloatTensor(sens)
+    sens = torch.LongTensor(sens)
+    # sens = torch.FloatTensor(sens)
     # idx_sens_train = list(sens_idx - set(idx_val) - set(idx_test))
     # random.seed(seed)
     # random.shuffle(idx_sens_train)

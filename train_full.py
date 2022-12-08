@@ -37,10 +37,11 @@ class GCondFullData:
         test_res = self.data.compute_test_metric(output)
 
         # logging
-        wandb.run.summary['test acc'] = test_res['accuracy']
+        # wandb.run.summary['test acc'] = test_res['accuracy']
         test_msg = "Test set results: "
         for k, v in test_res.items():
             if isinstance(v, float):
+                wandb.run.summary[k + '_test'] = v
                 v = f'{v:.4f}'
             elif isinstance(v, (list, tuple)):
                 v = '[' + ','.join([f'{vi:.4f}' for vi in v]) + ']'

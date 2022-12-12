@@ -19,7 +19,7 @@ from torch_geometric.datasets import Planetoid
 import pandas as pd
 
 
-def get_dataset(name, normalize_features=False, transform=None, if_dpr=True):
+def get_dataset(args, name, normalize_features=False, transform=None, if_dpr=True):
     path = osp.join(osp.dirname(osp.realpath(__file__)), 'data', name)
     if name in ['cora', 'citeseer', 'pubmed']:
         dataset = Planetoid(path, name)
@@ -28,7 +28,9 @@ def get_dataset(name, normalize_features=False, transform=None, if_dpr=True):
     elif name in ['pokec_z', 'pokec_n']:
         graph = load_pokec(dataset='region_job' if name == 'pokec_z' else 'region_job_2',
                            sens_attr='region',
-                           predict_attr='I_am_working_in_field')
+                           predict_attr='I_am_working_in_field',
+                           seed=args.seed,
+                           label_number=args.label_number)
         dataset = SimplePygDataWrapper(name=name, graph=graph)
     else:
         raise NotImplementedError
@@ -417,7 +419,7 @@ class SimplePygDataWrapper:
         return self.graph
 
 
-def load_pokec(dataset, sens_attr, predict_attr, path="./data/pokec/", label_number=500):
+def load_pokec(dataset, sens_attr, predict_attr, seed, path="./data/pokec/", label_number=500):
     """Load data"""
     print('Loading {} dataset from {}'.format(dataset, path))
 
@@ -452,7 +454,8 @@ def load_pokec(dataset, sens_attr, predict_attr, path="./data/pokec/", label_num
     # adj = sparse_mx_to_torch_sparse_tensor(adj)
 
     label_idx = np.where(labels >= 0)[0]
-    np.random.shuffle(label_idx)
+    rng = np.random.default_rng(seed=seed)
+    rng.shuffle(label_idx)  # use generator to ensure the same data split whenever this function is called
 
     idx_train = label_idx[:min(int(0.5 * len(label_idx)), label_number)]  # at most half of all data
     idx_val = label_idx[int(0.5 * len(label_idx)):int(0.75 * len(label_idx))]  # a quarter of all data

@@ -40,6 +40,7 @@ parser.add_argument('--save_dir', type=str, default='saved_ours')
 parser.add_argument('--one_step', type=int, default=0)
 parser.add_argument('--load_exist', default=False, action='store_true')
 parser.add_argument('--inner_model', default='gcn', type=str, choices=['gcn', 'appnp', 'gcn_pokec'])
+parser.add_argument('--label_number', type=int, default=500)
 
 # fair arguments
 parser.add_argument('--group_method', type=str, default=None, choices=['agg', 'geo', 'sens'])
@@ -57,7 +58,7 @@ parser.add_argument('--wandb_group', type=str, default=None)
 
 args = parser.parse_args()
 
-torch.cuda.set_device(args.gpu_id)
+# torch.cuda.set_device(args.gpu_id)
 
 # random seed setting
 random.seed(args.seed)
@@ -71,7 +72,7 @@ print(args)
 wandb_config_keys = ['dataset', 'epochs', 'nlayers', 'hidden', 'lr_adj', 'lr_feat', 'lr_model',
                      'weight_decay', 'dropout', 'normalize_features', 'reduction_rate', 'seed',
                      'alpha', 'sgc', 'inner', 'outer', 'inner_model', 'group_method', 'group_num',
-                     'full_data', 'full_data_epoch', 'full_data_lr', 'full_data_wd']
+                     'full_data', 'full_data_epoch', 'full_data_lr', 'full_data_wd', 'label_number']
 wandb_config = {k: getattr(args, k) for k in wandb_config_keys}
 wandb_group = args.wandb_group or ('Full Data' if args.full_data else 'Condensed')
 wandb.init(mode=args.wandb,
@@ -84,7 +85,7 @@ if args.dataset in data_graphsaint:
     data = DataGraphSAINT(args.dataset)
     data_full = data.data_full
 else:
-    data_full = get_dataset(args.dataset, args.normalize_features)
+    data_full = get_dataset(args, args.dataset, normalize_features=args.normalize_features)
     if args.group_method is None:
         data = Transd2Ind(data_full, keep_ratio=args.keep_ratio)
     elif args.group_method == 'sens':

@@ -27,13 +27,16 @@ class GCond:
         self.global_step = 0
 
         # n = data.nclass * args.nsamples
-        n = int(data.feat_train.shape[0] * args.reduction_rate)
+        if args.reduction_rate <= 1:
+            n = int(data.feat_train.shape[0] * args.reduction_rate)
+        else:  # if r > 1, consider r as the number of nodes in the synthetic graph
+            n = int(args.reduction_rate)
         # from collections import Counter; print(Counter(data.labels_train))
 
         d = data.feat_train.shape[1]
         self.nnodes_syn = n
         self.feat_syn = nn.Parameter(torch.FloatTensor(n, d).to(device))
-        self.pge = PGE(nfeat=d, nnodes=n, device=device,args=args).to(device)
+        self.pge = PGE(nfeat=d, nnodes=n, device=device, args=args).to(device)
 
         self.labels_syn = torch.LongTensor(self.generate_labels_syn(data)).to(device)
 
@@ -51,17 +54,19 @@ class GCond:
         num_class_dict = {}
         n = len(data.labels_train)
 
-        sorted_counter = sorted(counter.items(), key=lambda x:x[1])
+        sorted_counter = sorted(counter.items(), key=lambda x: x[1])
         sum_ = 0
         labels_syn = []
         self.syn_class_indices = {}
         for ix, (c, num) in enumerate(sorted_counter):
             if ix == len(sorted_counter) - 1:
-                num_class_dict[c] = int(n * self.args.reduction_rate) - sum_
+                # num_class_dict[c] = int(n * self.args.reduction_rate) - sum_
+                num_class_dict[c] = self.nnodes_syn - sum_
                 self.syn_class_indices[c] = [len(labels_syn), len(labels_syn) + num_class_dict[c]]
                 labels_syn += [c] * num_class_dict[c]
             else:
-                num_class_dict[c] = max(int(num * self.args.reduction_rate), 1)
+                # num_class_dict[c] = max(int(num * self.args.reduction_rate), 1)
+                num_class_dict[c] = max(int(num * self.nnodes_syn / n), 1)
                 sum_ += num_class_dict[c]
                 self.syn_class_indices[c] = [len(labels_syn), len(labels_syn) + num_class_dict[c]]
                 labels_syn += [c] * num_class_dict[c]

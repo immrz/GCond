@@ -145,3 +145,6 @@ saved_runze/
 
 # wandb logging
 wandb/
+
+# analysis scripts
+res_analysis/

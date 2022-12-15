@@ -12,4 +12,5 @@ python train_gcond_transduct.py \
   --hidden 128 \
   --no_norm_feat \
   --wandb disabled \
+  --group_method sens \
   "$@"

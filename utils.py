@@ -427,7 +427,7 @@ def load_pokec(dataset, sens_attr, predict_attr, seed, path="./data/pokec/", lab
     header = list(idx_features_labels.columns)
     header.remove("user_id")
 
-    header.remove(sens_attr)
+    # header.remove(sens_attr)
     header.remove(predict_attr)
 
     features = sp.csr_matrix(idx_features_labels[header], dtype=np.float32)

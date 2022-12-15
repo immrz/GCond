@@ -37,10 +37,14 @@ parser.add_argument('--inner', type=int, default=0)
 parser.add_argument('--outer', type=int, default=20)
 parser.add_argument('--save', type=int, default=0)
 parser.add_argument('--save_dir', type=str, default='saved_ours')
-parser.add_argument('--one_step', type=int, default=0)
+parser.add_argument('--one_step', default=False, action='store_true')
 parser.add_argument('--load_exist', default=False, action='store_true')
-parser.add_argument('--inner_model', default='gcn', type=str, choices=['gcn', 'appnp', 'gcn_pokec'])
 parser.add_argument('--label_number', type=int, default=500)
+
+# inner model
+parser.add_argument('--inner_model', default='gcn', type=str, choices=['gcn', 'appnp', 'gcn_pokec'])
+parser.add_argument('--inner_hidden', type=int, default=256)
+parser.add_argument('--inner_nlayers', type=int, default=3)
 
 # fair arguments
 parser.add_argument('--group_method', type=str, default=None, choices=['agg', 'geo', 'sens'])
@@ -72,7 +76,8 @@ print(args)
 wandb_config_keys = ['dataset', 'epochs', 'nlayers', 'hidden', 'lr_adj', 'lr_feat', 'lr_model',
                      'weight_decay', 'dropout', 'normalize_features', 'reduction_rate', 'seed',
                      'alpha', 'sgc', 'inner', 'outer', 'inner_model', 'group_method', 'group_num',
-                     'full_data', 'full_data_epoch', 'full_data_lr', 'full_data_wd', 'label_number']
+                     'full_data', 'full_data_epoch', 'full_data_lr', 'full_data_wd',
+                     'label_number', 'inner_hidden', 'inner_nlayers', 'one_step']
 wandb_config = {k: getattr(args, k) for k in wandb_config_keys}
 wandb_group = args.wandb_group or ('Full Data' if args.full_data else 'Condensed')
 wandb.init(mode=args.wandb,

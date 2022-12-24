@@ -84,8 +84,10 @@ class GCond:
                                     self.pge, self.labels_syn
             adj_syn = pge.inference(feat_syn)
         else:
-            feat_syn = torch.load(f'{args.save_dir}/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
-            adj_syn = torch.load(f'{args.save_dir}/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
+            feat_syn = torch.load(f'{args.save_dir}/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt',
+                                  map_location='cuda:0')
+            adj_syn = torch.load(f'{args.save_dir}/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt',
+                                 map_location='cuda:0')
             pge, labels_syn = self.pge, self.labels_syn
 
         # with_bn = True if args.dataset in ['ogbn-arxiv'] else False
@@ -128,15 +130,8 @@ class GCond:
 
         # Full graph
         output = model.predict(data.feat_full, data.adj_full)
-        # loss_test = F.nll_loss(output[data.idx_test], labels_test)
-        # acc_test = utils.accuracy(output[data.idx_test], labels_test)
-        # res.append(acc_test.item())
         test_res = self.data.compute_test_metric(output)
-        # res.append(test_res['accuracy'])
         if verbose:
-            # print("Test set results:",
-            #       "loss= {:.4f}".format(loss_test.item()),
-            #       "accuracy= {:.4f}".format(acc_test.item()))
             test_msg = "Test set results: "
             for k, v in test_res.items():
                 if isinstance(v, float):

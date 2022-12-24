@@ -8,6 +8,10 @@ from torch_geometric.data import InMemoryDataset, Data
 import torch
 from itertools import repeat
 from torch_geometric.data import NeighborSampler
+import torch.nn.functional as F
+from deeprobust.graph.utils import accuracy
+from collections import Counter
+
 
 class DataGraphSAINT:
     '''datasets used in GraphSAINT paper'''
@@ -133,6 +137,96 @@ class DataGraphSAINT:
         batch = np.random.permutation(self.class_dict2[c])[:num]
         out = self.samplers[c].sample(batch)
         return out
+
+    def compute_test_metric(self, model_output):
+        """
+        This is dataset is used for inductive learning, so model_output only contains the outputs
+        corresponding to the test nodes, i.e., its shape is (num_test, h).
+        """
+        labels_test = torch.LongTensor(self.labels_test).cuda()
+        loss_test = F.nll_loss(model_output, labels_test)
+        acc_test = accuracy(model_output, labels_test)
+        return {'loss': loss_test.item(), 'acc': acc_test.item()}
+
+
+class GroupedGraphSaint(DataGraphSAINT):
+    def __init__(self, dataset, group_method, **kwargs):
+        super().__init__(dataset, **kwargs)
+        assert group_method == 'degree', "Only degree grouping is supported now."
+
+        # use adj_test instead of adj_full[idx_test] since this is an inductive dataset
+        # degree: length is N (number of nodes)
+        degree = np.asarray(np.sum(self.adj_test, axis=-1))
+        degree = degree.squeeze().astype(np.int32)
+
+        # degree -> number of nodes with that degree; length is D (number of distinct degrees)
+        d2n = Counter(degree)
+
+        # sort by degree, ascending
+        d2n = list(sorted(d2n.items(), key=lambda _p: _p[0]))
+
+        # separate degree and number lists
+        d, n = list(zip(*d2n))
+
+        cur_groupsize = 0   # number of nodes in the current group
+        cut_position = [0]  # index in d2n to cut it into groups
+        for i, (cur_degree, cur_number) in enumerate(d2n):
+            # the last one, cut at D
+            if i == len(d2n) - 1:
+                cut_position.append(i + 1)
+                continue
+            cur_groupsize += cur_number
+
+            # if current group contains enough nodes, stop and put a cut point here
+            # 10.5 is a good number leading to 10 groups with nearly uniform sizes
+            if cur_groupsize >= degree.shape[0] / 10.5:
+                # cut at i+1, which is excluded
+                cut_position.append(i + 1)
+                cur_groupsize = 0
+
+        # now the cut_position is [0, c1, c2, ..., ck] (where k=10 actually)
+        # ci and c{i+1} index into d2n:
+        # d2n[ci], d2n[ci]+1, ..., d2n[c{i+1}]-1 are degrees and numbers belonging to the i-th group
+
+        # size of each group
+        print('Size of each group:')
+        group_sizes = [sum(n[cut_position[i]:cut_position[i+1]]) for i in range(len(cut_position) - 1)]
+        print(group_sizes)
+        print()
+
+        # degree range of each group
+        print('Range of degree of each group:')
+        print([f'{d[cut_position[i]]} -> {d[cut_position[i+1] - 1]}' for i in range(len(cut_position) - 1)])
+
+        groups = []
+        for i in range(len(cut_position) - 1):
+            start = cut_position[i]
+            end = cut_position[i+1] - 1
+            group_mask = (degree >= d[start]) & (degree <= d[end])
+            group_idx = np.nonzero(group_mask)[0]
+            groups.append(group_idx)
+
+        # check the group sizes
+        assert group_sizes == [len(g) for g in groups], 'These two lists should be identical.'
+        self.test_groups = groups
+
+    def compute_test_metric(self, model_output):
+        res = super().compute_test_metric(model_output)
+        group_acc = []
+
+        # compute group-wise accuracy
+        labels = torch.LongTensor(self.labels_test).cuda()
+        preds = model_output.max(1)[1].type_as(labels)
+        correct = torch.eq(labels, preds).double()
+
+        for group in self.test_groups:
+            assert len(group) > 0
+            group_acc.append(correct[group].sum().item() / len(group))
+
+        res['delta'] = max(group_acc) - min(group_acc)
+        res['std'] = np.std(group_acc)
+        res['group_acc'] = group_acc
+        return res
 
 
 class GraphData:

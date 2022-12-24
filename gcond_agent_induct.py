@@ -64,20 +64,27 @@ class GCond:
         self.num_class_dict = num_class_dict
         return labels_syn
 
-    def test_with_val(self, verbose=True):
+    def test_with_val(self, verbose=True, load_exist=False):
         res = []
 
-        data, device = self.data, self.device
-        feat_syn, pge, labels_syn = self.feat_syn.detach(), \
-                                self.pge, self.labels_syn
+        data, device, args = self.data, self.device, self.args
+
+        if not load_exist:
+            feat_syn, pge, labels_syn = self.feat_syn.detach(), \
+                                    self.pge, self.labels_syn
+            adj_syn = pge.inference(feat_syn)
+        else:
+            feat_syn = torch.load(f'{args.save_dir}/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt',
+                                  map_location='cuda:0')
+            adj_syn = torch.load(f'{args.save_dir}/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt',
+                                 map_location='cuda:0')
+            pge, labels_syn = self.pge, self.labels_syn
+
         # with_bn = True if args.dataset in ['ogbn-arxiv'] else False
         dropout = 0.5 if self.args.dataset in ['reddit'] else 0
         model = GCN(nfeat=feat_syn.shape[1], nhid=self.args.hidden, dropout=dropout,
                     weight_decay=5e-4, nlayers=2,
                     nclass=data.nclass, device=device).to(device)
-
-        adj_syn = pge.inference(feat_syn)
-        args = self.args
 
         if args.save:
             torch.save(adj_syn, f'saved_ours/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
@@ -85,21 +92,28 @@ class GCond:
 
         noval = True
         model.fit_with_val(feat_syn, adj_syn, labels_syn, data,
-                     train_iters=600, normalize=True, verbose=False, noval=noval)
+                           train_iters=600, normalize=True, verbose=False, noval=noval)
 
         model.eval()
         labels_test = torch.LongTensor(data.labels_test).cuda()
 
         output = model.predict(data.feat_test, data.adj_test)
+        test_res = self.data.compute_test_metric(output)
+        res.append(test_res['acc'])
 
-        loss_test = F.nll_loss(output, labels_test)
-        acc_test = utils.accuracy(output, labels_test)
-        res.append(acc_test.item())
+        # loss_test = F.nll_loss(output, labels_test)
+        # acc_test = utils.accuracy(output, labels_test)
+        # res.append(acc_test.item())
         if verbose:
-            print("Test set results:",
-                  "loss= {:.4f}".format(loss_test.item()),
-                  "accuracy= {:.4f}".format(acc_test.item()))
-        print(adj_syn.sum(), adj_syn.sum()/(adj_syn.shape[0]**2))
+            test_msg = "Test set results: "
+            for k, v in test_res.items():
+                if isinstance(v, float):
+                    # res[k + '_test'] = v
+                    v = f'{v:.4f}'
+                elif isinstance(v, (list, tuple)):
+                    v = '[' + ','.join([f'{vi:.4f}' for vi in v]) + ']'
+                test_msg += f'{k}={v} '
+            print(test_msg)
 
         if False:
             if self.args.dataset == 'ogbn-arxiv':

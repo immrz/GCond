@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from gcond_agent_transduct import GCond
 from train_full import GCondFullData
 from utils_graphsaint import DataGraphSAINT
-from utils_fairness import GroupedTrans, BiSensAttrTrans
+from utils_fairness import GroupedTrans, BiSensAttrTrans, DegreeGroupedTrans
 import wandb
 
 
@@ -47,7 +47,7 @@ parser.add_argument('--inner_hidden', type=int, default=256)
 parser.add_argument('--inner_nlayers', type=int, default=3)
 
 # fair arguments
-parser.add_argument('--group_method', type=str, default=None, choices=['agg', 'geo', 'sens'])
+parser.add_argument('--group_method', type=str, default=None, choices=['agg', 'geo', 'sens', 'degree'])
 parser.add_argument('--group_num', type=int, default=5)
 
 # train with full data
@@ -55,6 +55,10 @@ parser.add_argument('--full_data', default=False, action='store_true')
 parser.add_argument('--full_data_epoch', type=int, default=1000)
 parser.add_argument('--full_data_lr', type=float, default=0.01)
 parser.add_argument('--full_data_wd', type=float, default=5e-4)
+
+# use DEMD
+parser.add_argument('--demd_lambda', default=-1, type=float)
+parser.add_argument('--demd_bins', type=int, default=10)
 
 # use wandb logging
 parser.add_argument('--wandb', type=str, default='disabled', choices=['online', 'offline', 'disabled'])
@@ -77,7 +81,8 @@ wandb_config_keys = ['dataset', 'epochs', 'nlayers', 'hidden', 'lr_adj', 'lr_fea
                      'weight_decay', 'dropout', 'normalize_features', 'reduction_rate', 'seed',
                      'alpha', 'sgc', 'inner', 'outer', 'inner_model', 'group_method', 'group_num',
                      'full_data', 'full_data_epoch', 'full_data_lr', 'full_data_wd',
-                     'label_number', 'inner_hidden', 'inner_nlayers', 'one_step']
+                     'label_number', 'inner_hidden', 'inner_nlayers', 'one_step', 'load_exist',
+                     'demd_lambda', 'demd_bins']
 wandb_config = {k: getattr(args, k) for k in wandb_config_keys}
 wandb_group = args.wandb_group or ('Full Data' if args.full_data else 'Condensed')
 wandb.init(mode=args.wandb,
@@ -96,6 +101,9 @@ else:
     elif args.group_method == 'sens':
         assert args.dataset.startswith('pokec')
         data = BiSensAttrTrans(data_full, args.keep_ratio)
+    elif args.group_method == 'degree':
+        assert args.dataset in ['cora', 'citeseer']
+        data = DegreeGroupedTrans(data_full, args.keep_ratio)
     else:
         data = GroupedTrans(data_full, args.keep_ratio, args.group_method, group_num=args.group_num)
 

@@ -150,6 +150,8 @@ class Transd2Ind:
         self.class_dict2 = None
 
     def retrieve_class(self, c, num=256):
+        """Retrieve randomly `num` nodes from class `c` and return their indices in the training nodes.
+        """
         if self.class_dict is None:
             self.class_dict = {}
             for i in range(self.nclass):
@@ -163,8 +165,10 @@ class Transd2Ind:
             self.class_dict2 = {}
             for i in range(self.nclass):
                 if transductive:
+                    # idx is the index in all nodes, and adj is adj_full
                     idx = self.idx_train[self.labels_train == i]
                 else:
+                    # idx is the index in the training nodes, and adj is adj_train
                     idx = np.arange(len(self.labels_train))[self.labels_train==i]
                 self.class_dict2[i] = idx
 
@@ -180,17 +184,21 @@ class Transd2Ind:
         if args.nlayers == 5:
             sizes = [15, 10, 5, 5, 5]
 
-
         if self.samplers is None:
+            # each sampler for each class
             self.samplers = []
             for i in range(self.nclass):
                 node_idx = torch.LongTensor(self.class_dict2[i])
-                self.samplers.append(NeighborSampler(adj,
-                                    node_idx=node_idx,
-                                    sizes=sizes, batch_size=num,
-                                    num_workers=12, return_e_id=False,
-                                    num_nodes=adj.size(0),
-                                    shuffle=True))
+                self.samplers.append(NeighborSampler(
+                    adj,
+                    node_idx=node_idx,
+                    sizes=sizes,
+                    batch_size=num,
+                    num_workers=12,
+                    return_e_id=False,
+                    num_nodes=adj.size(0),
+                    shuffle=True
+                ))
         batch = np.random.permutation(self.class_dict2[c])[:num]
         out = self.samplers[c].sample(batch)
         return out

@@ -2,6 +2,8 @@ from utils import Transd2Ind
 import networkx as nx
 import numpy as np
 import torch
+from collections import Counter
+from torch_geometric.loader import NeighborSampler
 
 
 class GroupedTrans(Transd2Ind):
@@ -126,3 +128,144 @@ class BiSensAttrTrans(Transd2Ind):
         res['parity'] = parity
         res['equality'] = equality
         return res
+
+
+def groupby_degree(adj: np.ndarray, thres: float):
+    """Group nodes by degree.
+    Parameters:
+        adj: adjacency matrix, shape (N, M).
+        thres: approximate number of groups; this is a floating point number,
+            and the actual number of groups may be smaller.
+    Returns:
+        group_ids: ndarray shaped (N, ), i-th element is the group id of the i-th node.
+    """
+    # degree: length is N (number of nodes)
+    degree = np.asarray(np.sum(adj, axis=1))
+    degree = degree.squeeze().astype(np.int32)
+
+    # degree -> number of nodes with that degree; length is D (number of distinct degrees)
+    d2n = Counter(degree)
+
+    # sort by degree, ascending
+    d2n = list(sorted(d2n.items(), key=lambda _p: _p[0]))
+
+    # separate degree and number lists
+    d, n = list(zip(*d2n))
+
+    cur_groupsize = 0  # number of nodes in the current group
+    cut_position = [0]  # index in d2n to cut it into groups
+    for i, (cur_degree, cur_number) in enumerate(d2n):
+        # the last one, cut at D
+        if i == len(d2n) - 1:
+            cut_position.append(i + 1)
+            continue
+        cur_groupsize += cur_number
+
+        # if current group contains enough nodes, stop and put a cut point here
+        if cur_groupsize >= degree.shape[0] / thres:
+            # cut at i+1, which is excluded
+            cut_position.append(i + 1)
+            cur_groupsize = 0
+
+    # now the cut_position is [0, c1, c2, ..., ck] (where k is the number of groups)
+    # ci and c{i+1} index into d2n:
+    # d2n[ci], d2n[ci]+1, ..., d2n[c{i+1}]-1 are degrees and numbers belonging to the i-th group
+
+    # size of each group
+    print('Size of each group:')
+    group_sizes = [sum(n[cut_position[i]:cut_position[i + 1]]) for i in range(len(cut_position) - 1)]
+    print(group_sizes)
+
+    # degree range of each group
+    print('Range of degree of each group:')
+    print([f'{d[cut_position[i]]} -> {d[cut_position[i + 1] - 1]}' for i in range(len(cut_position) - 1)])
+    print()
+
+    group_ids = -np.ones(degree.shape[0], dtype=np.int32)
+    for i in range(len(cut_position) - 1):
+        start = cut_position[i]
+        end = cut_position[i + 1] - 1
+        group_mask = (degree >= d[start]) & (degree <= d[end])
+        group_ids[group_mask] = i
+
+    # check that every node is assigned to a group
+    assert np.all(group_ids >= 0), 'Some nodes are not assigned to any group'
+    return group_ids
+
+
+class DegreeGroupedTrans(Transd2Ind):
+    def __init__(self, dpr_data, keep_ratio):
+        super().__init__(dpr_data, keep_ratio)
+
+        # group training nodes by degree
+        self.train_gid = torch.LongTensor(
+            groupby_degree(adj=self.adj_full[self.idx_train], thres=2)
+        )
+
+        # group testing nodes by degree
+        self.test_gid = torch.LongTensor(
+            groupby_degree(adj=self.adj_full[self.idx_test], thres=2)
+        )
+
+    def compute_test_metric(self, model_output):
+        res = super().compute_test_metric(model_output)
+        group_acc = []
+
+        # compute group-wise accuracy
+        labels = torch.LongTensor(self.labels_test).cuda()
+        preds = model_output[self.idx_test].max(1)[1].type_as(labels)
+        correct = torch.eq(labels, preds).double()
+
+        for i in range(self.test_gid.max().item() + 1):
+            group_mask = (self.test_gid == i)
+            group_size = group_mask.sum().item()
+            assert group_size > 0
+            group_acc.append(correct[group_mask].sum().item() / group_size)
+
+        res['delta'] = max(group_acc) - min(group_acc)
+        res['std'] = np.std(group_acc)
+        res['group_acc'] = group_acc
+        return res
+
+    def retrieve_class_sampler(self, c, adj, transductive, num=256, args=None):
+        if self.class_dict2 is None:
+            self.class_dict2 = {}
+            for i in range(self.nclass):
+                if transductive:
+                    # idx is the index in all nodes, and adj is adj_full
+                    idx = self.idx_train[self.labels_train == i]
+                else:
+                    # idx is the index in the training nodes, and adj is adj_train
+                    idx = np.arange(len(self.labels_train))[self.labels_train==i]
+                self.class_dict2[i] = idx
+
+        if args.nlayers == 1:
+            sizes = [15]
+        if args.nlayers == 2:
+            sizes = [10, 5]
+            # sizes = [-1, -1]
+        if args.nlayers == 3:
+            sizes = [15, 10, 5]
+        if args.nlayers == 4:
+            sizes = [15, 10, 5, 5]
+        if args.nlayers == 5:
+            sizes = [15, 10, 5, 5, 5]
+
+        if self.samplers is None:
+            # each sampler for each class
+            self.samplers = []
+            for i in range(self.nclass):
+                node_idx = torch.LongTensor(self.class_dict2[i])
+                self.samplers.append(NeighborSampler(
+                    adj,
+                    node_idx=node_idx,
+                    sizes=sizes,
+                    batch_size=num,  # this is a useless parameter
+                    num_workers=12,
+                    return_e_id=False,
+                    num_nodes=adj.size(0),
+                    shuffle=True
+                ))
+        batch = np.random.permutation(self.class_dict2[c])[:num]
+        out = self.samplers[c].sample(batch)
+        return out

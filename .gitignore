@@ -148,3 +148,6 @@ wandb/
 
 # analysis scripts
 res_analysis/
+
+# standard outputs
+stdout/

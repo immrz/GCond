@@ -16,6 +16,7 @@ from models.parametrized_adj import PGE
 import scipy.sparse as sp
 from torch_sparse import SparseTensor
 import wandb
+from demd import DEMDLayer
 
 
 class GCond:
@@ -25,6 +26,8 @@ class GCond:
         self.args = args
         self.device = device
         self.global_step = 0
+        self.demd_lambda = args.demd_lambda
+        self.demd_bins = args.demd_bins
 
         # n = data.nclass * args.nsamples
         if args.reduction_rate <= 1:
@@ -44,6 +47,9 @@ class GCond:
         self.optimizer_feat = torch.optim.Adam([self.feat_syn], lr=args.lr_feat)
         self.optimizer_pge = torch.optim.Adam(self.pge.parameters(), lr=args.lr_adj)
         print('adj_syn:', (n,n), 'feat_syn:', self.feat_syn.shape)
+
+        # if demd_lambda is nonnegative, create demd_layer
+        self.demd_layer = DEMDLayer(discretization=self.demd_bins)
 
     def reset_parameters(self):
         self.feat_syn.data.copy_(torch.randn(self.feat_syn.size()))
@@ -225,6 +231,8 @@ class GCond:
                             module.eval() # fix mu and sigma of every BatchNorm layer
 
                 loss = torch.tensor(0.0).to(self.device)  # loss over all classes
+                optimizer_model.zero_grad()
+
                 for c in range(data.nclass):  # third loop - process each class separately
                     batch_size, n_id, adjs = data.retrieve_class_sampler(
                             c, adj, transductive=True, args=args)
@@ -234,6 +242,13 @@ class GCond:
                     adjs = [adj.to(self.device) for adj in adjs]
                     output = model.forward_sampler(features[n_id], adjs)
                     loss_real = F.nll_loss(output, labels[n_id[:batch_size]])
+
+                    # compute OT loss
+                    if self.demd_lambda >= 0:
+                        train_gid = self.data.train_gid
+                        batch_gid = train_gid[n_id[:batch_size]]
+                        loss_ot = self.demd_lambda * self.demd_layer(output, batch_gid)
+                        loss_ot.backward(retain_graph=True)  # accumulate model gradients
 
                     gw_real = torch.autograd.grad(loss_real, model_parameters)
                     gw_real = list((_.detach().clone() for _ in gw_real))
@@ -267,6 +282,10 @@ class GCond:
                     self.optimizer_pge.step()
                 else:
                     self.optimizer_feat.step()
+
+                # update model
+                if self.demd_lambda >= 0:
+                    optimizer_model.step()
 
                 if args.debug and ol % 5 ==0:
                     print('Gradient matching loss:', loss.item())

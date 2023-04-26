@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -110,6 +111,8 @@ class GCond:
                         nclass=data.nclass, device=device).to(device)
 
         if self.args.save:
+            if not os.path.isdir(args.save_dir):
+                os.mkdir(args.save_dir)
             torch.save(adj_syn, f'{args.save_dir}/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
             torch.save(feat_syn, f'{args.save_dir}/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
 
@@ -141,9 +144,11 @@ class GCond:
             test_msg = "Test set results: "
             for k, v in test_res.items():
                 if isinstance(v, float):
+                    # if scalar, add a suffix _test so that the average will be computed afterwards
                     res[k + '_test'] = v
                     v = f'{v:.4f}'
                 elif isinstance(v, (list, tuple)):
+                    # if iterable, convert to string and just print
                     v = '[' + ','.join([f'{vi:.4f}' for vi in v]) + ']'
                 test_msg += f'{k}={v} '
             print(test_msg)
@@ -231,6 +236,7 @@ class GCond:
                             module.eval() # fix mu and sigma of every BatchNorm layer
 
                 loss = torch.tensor(0.0).to(self.device)  # loss over all classes
+                loss_ot_accum = 0.0  # OT loss over all classes
                 optimizer_model.zero_grad()
 
                 for c in range(data.nclass):  # third loop - process each class separately
@@ -249,6 +255,7 @@ class GCond:
                         batch_gid = train_gid[n_id[:batch_size]]
                         loss_ot = self.demd_lambda * self.demd_layer(output, batch_gid)
                         loss_ot.backward(retain_graph=True)  # accumulate model gradients
+                        loss_ot_accum += loss_ot.item() / self.demd_lambda
 
                     gw_real = torch.autograd.grad(loss_real, model_parameters)
                     gw_real = list((_.detach().clone() for _ in gw_real))
@@ -286,6 +293,7 @@ class GCond:
                 # update model
                 if self.demd_lambda >= 0:
                     optimizer_model.step()
+                    wandb.log({'loss_ot': loss_ot_accum}, step=self.global_step)
 
                 if args.debug and ol % 5 ==0:
                     print('Gradient matching loss:', loss.item())

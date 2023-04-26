@@ -37,25 +37,12 @@
 #  done
 #done
 
-for h in 128 256 512
-do
-  for nl in 2 3 4
+for ln in 500 1000 4000
   do
-    for sgc in 1 2
-    do
-      for r in 250 500 800
-      do
-        for lf in 1e-3
-        do
-          for s in 2 100 786
-          do
-            ./scripts/run_pokec.sh --nlayers "${nl}" --hidden "${h}" --sgc "${sgc}" --r "${r}" --seed "${s}" \
-              --inner_hidden 128 --inner_nlayers 2 --lr_feat "${lf}" \
-              --dataset pokec_z --wandb online --wandb_group tune_pokecz \
-              --group_method sens --label_number 2000 --epochs 1600 --one_step --save 0
-          done
-        done
-      done
-    done
+  for s in 1 2 10 42 100 786
+  do
+    ./scripts/run_pokec.sh --save 0 --hidden 128 --nlayers 2 --label_number "${ln}" \
+      --full_data --full_data_epoch 2000 --full_data_lr 0.001 --full_data_wd 1e-5 \
+      --seed "${s}" --wandb online --wandb_group tmp_run
   done
 done

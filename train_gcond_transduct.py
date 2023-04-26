@@ -49,6 +49,7 @@ parser.add_argument('--inner_nlayers', type=int, default=3)
 # fair arguments
 parser.add_argument('--group_method', type=str, default=None, choices=['agg', 'geo', 'sens', 'degree'])
 parser.add_argument('--group_num', type=int, default=5)
+parser.add_argument('--groupby_degree_thres', type=float, default=2)
 
 # train with full data
 parser.add_argument('--full_data', default=False, action='store_true')
@@ -82,7 +83,7 @@ wandb_config_keys = ['dataset', 'epochs', 'nlayers', 'hidden', 'lr_adj', 'lr_fea
                      'alpha', 'sgc', 'inner', 'outer', 'inner_model', 'group_method', 'group_num',
                      'full_data', 'full_data_epoch', 'full_data_lr', 'full_data_wd',
                      'label_number', 'inner_hidden', 'inner_nlayers', 'one_step', 'load_exist',
-                     'demd_lambda', 'demd_bins']
+                     'demd_lambda', 'demd_bins', 'groupby_degree_thres']
 wandb_config = {k: getattr(args, k) for k in wandb_config_keys}
 wandb_group = args.wandb_group or ('Full Data' if args.full_data else 'Condensed')
 wandb.init(mode=args.wandb,
@@ -103,13 +104,16 @@ else:
         data = BiSensAttrTrans(data_full, args.keep_ratio)
     elif args.group_method == 'degree':
         assert args.dataset in ['cora', 'citeseer']
-        data = DegreeGroupedTrans(data_full, args.keep_ratio)
+        data = DegreeGroupedTrans(data_full, args.keep_ratio, thres=args.groupby_degree_thres)
     else:
         data = GroupedTrans(data_full, args.keep_ratio, args.group_method, group_num=args.group_num)
 
 if args.full_data:
     agent = GCondFullData(data, args, device='cuda')
-    agent.train()
+    if not args.load_exist:
+        agent.train()
+    else:
+        agent.test()
     exit(0)
 
 agent = GCond(data, args, device='cuda')

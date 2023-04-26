@@ -130,7 +130,7 @@ class BiSensAttrTrans(Transd2Ind):
         return res
 
 
-def groupby_degree(adj: np.ndarray, thres: float):
+def groupby_degree(adj: np.ndarray, thres: float, verbose=True):
     """Group nodes by degree.
     Parameters:
         adj: adjacency matrix, shape (N, M).
@@ -171,15 +171,14 @@ def groupby_degree(adj: np.ndarray, thres: float):
     # ci and c{i+1} index into d2n:
     # d2n[ci], d2n[ci]+1, ..., d2n[c{i+1}]-1 are degrees and numbers belonging to the i-th group
 
-    # size of each group
-    print('Size of each group:')
     group_sizes = [sum(n[cut_position[i]:cut_position[i + 1]]) for i in range(len(cut_position) - 1)]
-    print(group_sizes)
 
-    # degree range of each group
-    print('Range of degree of each group:')
-    print([f'{d[cut_position[i]]} -> {d[cut_position[i + 1] - 1]}' for i in range(len(cut_position) - 1)])
-    print()
+    if verbose:
+        # min_degree->max_degree: n nodes
+        for i in range(len(cut_position) - 1):
+            min_deg = d[cut_position[i]]
+            max_deg = d[cut_position[i + 1] - 1]
+            print(f'{min_deg}->{max_deg}:\t\t{group_sizes[i]} nodes')
 
     group_ids = -np.ones(degree.shape[0], dtype=np.int32)
     for i in range(len(cut_position) - 1):
@@ -194,17 +193,17 @@ def groupby_degree(adj: np.ndarray, thres: float):
 
 
 class DegreeGroupedTrans(Transd2Ind):
-    def __init__(self, dpr_data, keep_ratio):
+    def __init__(self, dpr_data, keep_ratio, thres):
         super().__init__(dpr_data, keep_ratio)
 
         # group training nodes by degree
         self.train_gid = torch.LongTensor(
-            groupby_degree(adj=self.adj_full[self.idx_train], thres=2)
+            groupby_degree(adj=self.adj_full[self.idx_train], thres=thres)
         )
 
         # group testing nodes by degree
         self.test_gid = torch.LongTensor(
-            groupby_degree(adj=self.adj_full[self.idx_test], thres=2)
+            groupby_degree(adj=self.adj_full[self.idx_test], thres=thres)
         )
 
     def compute_test_metric(self, model_output):

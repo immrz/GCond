@@ -151,3 +151,12 @@ res_analysis/
 
 # standard outputs
 stdout/
+
+# tests
+my_tests/
+
+# rsync
+.rsync-exclude
+
+# temp directory
+tmp/

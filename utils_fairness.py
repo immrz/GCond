@@ -192,6 +192,39 @@ def groupby_degree(adj: np.ndarray, thres: float, verbose=True):
     return group_ids
 
 
+def delta_std_parity(labels: torch.LongTensor, preds: torch.LongTensor, group_ids: torch.LongTensor):
+    res = {}
+    group_acc = []
+
+    ng = group_ids.max().item() + 1
+    ny = labels.max().item() + 1
+    correct = torch.eq(labels, preds).float()
+
+    for i in range(ng):
+        group_mask = (group_ids == i)
+        group_size = group_mask.sum().item()
+        assert group_size > 0
+        group_acc.append(correct[group_mask].sum().item() / group_size)
+
+    res['delta'] = max(group_acc) - min(group_acc)
+    res['std'] = np.std(group_acc)
+    res['group_acc'] = group_acc
+
+    # compute statistical parity
+    average_parities = []
+    for i in range(ng):
+        group_mask = (group_ids == i)
+        max_diff = -1
+        for y in range(ny):
+            pisy = torch.eq(preds, y).float()
+            diff = torch.abs(pisy.mean() - pisy[group_mask].mean()).item()
+            max_diff = max(max_diff, diff)
+        assert max_diff >= 0
+        average_parities.append(max_diff)
+    res['parity'] = sum(average_parities) / ng
+    return res
+
+
 class DegreeGroupedTrans(Transd2Ind):
     def __init__(self, dpr_data, keep_ratio, thres):
         super().__init__(dpr_data, keep_ratio)
@@ -206,24 +239,16 @@ class DegreeGroupedTrans(Transd2Ind):
             groupby_degree(adj=self.adj_full[self.idx_test], thres=thres)
         )
 
+        # scatter the train_gid to the full graph; -1 for non-train nodes, and non-negative integers for train nodes
+        self.all_gid = -torch.ones(self.adj_full.shape[0], dtype=torch.long)
+        self.all_gid[self.idx_train] = self.train_gid
+
     def compute_test_metric(self, model_output):
         res = super().compute_test_metric(model_output)
-        group_acc = []
-
-        # compute group-wise accuracy
         labels = torch.LongTensor(self.labels_test).cuda()
         preds = model_output[self.idx_test].max(1)[1].type_as(labels)
-        correct = torch.eq(labels, preds).double()
-
-        for i in range(self.test_gid.max().item() + 1):
-            group_mask = (self.test_gid == i)
-            group_size = group_mask.sum().item()
-            assert group_size > 0
-            group_acc.append(correct[group_mask].sum().item() / group_size)
-
-        res['delta'] = max(group_acc) - min(group_acc)
-        res['std'] = np.std(group_acc)
-        res['group_acc'] = group_acc
+        fair_res = delta_std_parity(labels, preds, self.test_gid)
+        res.update(fair_res)
         return res
 
     def retrieve_class_sampler(self, c, adj, transductive, num=256, args=None):

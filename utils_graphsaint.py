@@ -11,7 +11,7 @@ from torch_geometric.data import NeighborSampler
 import torch.nn.functional as F
 from deeprobust.graph.utils import accuracy
 from collections import Counter
-from utils_fairness import groupby_degree
+from utils_fairness import groupby_degree, delta_std_parity
 
 
 class DataGraphSAINT:
@@ -24,6 +24,9 @@ class DataGraphSAINT:
         if dataset == 'ogbn-arxiv':
             adj_full = adj_full + adj_full.T
             adj_full[adj_full > 1] = 1
+            self.transductive = True  # this dataset is used for transductive setting
+        else:
+            self.transductive = False
 
         role = json.load(open(dataset_str+'role.json','r'))
         idx_train = role['tr']
@@ -145,8 +148,12 @@ class DataGraphSAINT:
         corresponding to the test nodes, i.e., its shape is (num_test, h).
         """
         labels_test = torch.LongTensor(self.labels_test).cuda()
-        loss_test = F.nll_loss(model_output, labels_test)
-        acc_test = accuracy(model_output, labels_test)
+        if not self.transductive:
+            loss_test = F.nll_loss(model_output, labels_test)
+            acc_test = accuracy(model_output, labels_test)
+        else:
+            loss_test = F.nll_loss(model_output[self.idx_test], labels_test)
+            acc_test = accuracy(model_output[self.idx_test], labels_test)
         return {'loss': loss_test.item(), 'acc': acc_test.item()}
 
 
@@ -179,6 +186,29 @@ class GroupedGraphSaint(DataGraphSAINT):
         res['delta'] = max(group_acc) - min(group_acc)
         res['std'] = np.std(group_acc)
         res['group_acc'] = group_acc
+        return res
+
+
+class DegreeGroupedGraphSaintTrans(DataGraphSAINT):
+    def __init__(self, dataset, thres, **kwargs):
+        super().__init__(dataset, **kwargs)
+        self.train_gid = torch.LongTensor(
+            groupby_degree(adj=self.adj_full[self.idx_train], thres=thres)
+        )
+        self.test_gid = torch.LongTensor(
+            groupby_degree(adj=self.adj_full[self.idx_test], thres=thres)
+        )
+
+        # scatter the train_gid to the full graph; -1 for non-train nodes, and non-negative integers for train nodes
+        self.all_gid = -torch.ones(self.adj_full.shape[0], dtype=torch.long)
+        self.all_gid[self.idx_train] = self.train_gid
+
+    def compute_test_metric(self, model_output):
+        res = super().compute_test_metric(model_output)
+        labels = torch.LongTensor(self.labels_test).cuda()
+        preds = model_output[self.idx_test].max(1)[1].type_as(labels)
+        fair_res = delta_std_parity(labels, preds, self.test_gid)
+        res.update(fair_res)
         return res
 
 

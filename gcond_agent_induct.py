@@ -15,6 +15,7 @@ from models.sgc_multi import SGC as SGC1
 from models.parametrized_adj import PGE
 import scipy.sparse as sp
 from torch_sparse import SparseTensor
+import os
 
 
 class GCond:
@@ -87,8 +88,10 @@ class GCond:
                     nclass=data.nclass, device=device).to(device)
 
         if args.save:
-            torch.save(adj_syn, f'saved_ours/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
-            torch.save(feat_syn, f'saved_ours/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
+            if not os.path.isdir(args.save_dir):
+                os.makedirs(args.save_dir)
+            torch.save(adj_syn, f'{args.save_dir}/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
+            torch.save(feat_syn, f'{args.save_dir}/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
 
         noval = True
         model.fit_with_val(feat_syn, adj_syn, labels_syn, data,

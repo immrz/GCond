@@ -160,3 +160,6 @@ my_tests/
 
 # temp directory
 tmp/
+
+# third-party packages
+deeprobust/

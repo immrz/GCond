@@ -1,4 +1,5 @@
 import os
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -112,7 +113,7 @@ class GCond:
 
         if self.args.save:
             if not os.path.isdir(args.save_dir):
-                os.mkdir(args.save_dir)
+                os.makedirs(args.save_dir)
             torch.save(adj_syn, f'{args.save_dir}/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
             torch.save(feat_syn, f'{args.save_dir}/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt')
 
@@ -183,6 +184,13 @@ class GCond:
         outer_loop, inner_loop = get_loops(args)
         self.global_step = 0
 
+        try:
+            samp_neig_it = PreSampNeighbIter(self.args.dataset)
+            print("Using pre-sampled neighbors for faster computation.")
+        except FileNotFoundError:
+            print("Pre-sampled neighbors not found. Sample the neighbors with retrieve_class_sampler method instead.")
+            samp_neig_it = None
+
         for it in range(args.epochs+1):
             loss_avg = 0  # loss over one epoch of training condensed graph
 
@@ -239,9 +247,21 @@ class GCond:
                 loss_ot_accum = 0.0  # OT loss over all classes
                 optimizer_model.zero_grad()
 
+                if samp_neig_it is not None:
+                    try:
+                        samp_neig = next(samp_neig_it)
+                    except StopIteration:
+                        print("Pre-sampled neighbors exhausted. Reinitializing ...")
+                        samp_neig_it = PreSampNeighbIter(self.args.dataset)
+                        samp_neig = next(samp_neig_it)
+                else:
+                    samp_neig = None
+
                 for c in range(data.nclass):  # third loop - process each class separately
-                    batch_size, n_id, adjs = data.retrieve_class_sampler(
-                            c, adj, transductive=True, args=args)
+                    if samp_neig is not None:
+                        batch_size, n_id, adjs = samp_neig[c]
+                    else:
+                        batch_size, n_id, adjs = data.retrieve_class_sampler(c, adj, transductive=True, args=args)
                     if args.nlayers == 1:
                         adjs = [adjs]
 
@@ -251,8 +271,10 @@ class GCond:
 
                     # compute OT loss
                     if self.demd_lambda >= 0:
-                        train_gid = self.data.train_gid
+                        # train_gid = self.data.train_gid
+                        train_gid = self.data.all_gid  # above is wrong, `n_id` indexes into the full graph
                         batch_gid = train_gid[n_id[:batch_size]]
+                        assert batch_gid.min() >= 0
                         loss_ot = self.demd_lambda * self.demd_layer(output, batch_gid)
                         loss_ot.backward(retain_graph=True)  # accumulate model gradients
                         loss_ot_accum += loss_ot.item() / self.demd_lambda
@@ -386,3 +408,25 @@ def get_loops(args):
     else:
         return 20, 10
 
+
+class PreSampNeighbIter:
+    def __init__(self, dataset):
+        if os.path.isfile(f'data/{dataset}/neighbors/disabled'):
+            raise FileNotFoundError
+        self.i = 0   # file index
+        self.j = -1  # list index
+        self.n = 10  # number of files
+        self.prefix = f'data/{dataset}/neighbors/{dataset}_nbsamp_'
+        self.data = torch.load(f'{self.prefix}{self.i}.pt')
+
+    def __next__(self):
+        if self.j+1 < len(self.data):
+            self.j += 1
+            return self.data[self.j]
+        elif self.i+1 < self.n:
+            self.i += 1
+            self.j = 0
+            self.data = torch.load(f'{self.prefix}{self.i}.pt')
+            return self.data[self.j]
+        else:
+            raise StopIteration

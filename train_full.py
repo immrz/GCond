@@ -36,7 +36,7 @@ class GCondFullData:
 
         if self.args.save:
             if not os.path.isdir(self.args.save_dir):
-                os.mkdir(self.args.save_dir)
+                os.makedirs(self.args.save_dir)
             torch.save(model.state_dict(), f'{self.args.save_dir}/model_{self.args.dataset}_full_{self.args.seed}.pt')
         model.eval()
         output = model.predict(data.feat_full, data.adj_full)
@@ -109,6 +109,11 @@ class GCondFullDataInductive:
                            verbose=True,
                            normalize=True,
                            noval=True)
+
+        if self.args.save:
+            if not os.path.isdir(self.args.save_dir):
+                os.makedirs(self.args.save_dir)
+            torch.save(model.state_dict(), f'{self.args.save_dir}/full_{self.args.seed}.pt')
 
         model.eval()
         output = model.predict(data.feat_test, data.adj_test)

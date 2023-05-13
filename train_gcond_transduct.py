@@ -9,7 +9,8 @@ import torch.nn.functional as F
 from gcond_agent_transduct import GCond
 from train_full import GCondFullData
 from utils_graphsaint import DataGraphSAINT, DegreeGroupedGraphSaintTrans
-from utils_fairness import GroupedTrans, BiSensAttrTrans, DegreeGroupedTrans
+from utils_fairness import GroupedTrans, DegreeGroupedTrans
+from utils_credit_def import BiClassBiAttrTrans
 import wandb
 
 
@@ -96,23 +97,19 @@ def main():
     if args.dataset in data_graphsaint:
         if args.group_method is None:
             data = DataGraphSAINT(args.dataset)
-            data_full = data.data_full
         else:
             assert args.group_method == 'degree' and args.dataset == 'ogbn-arxiv'
             data = DegreeGroupedGraphSaintTrans(args.dataset, thres=args.groupby_degree_thres)
-            data_full = data.data_full
+    elif args.dataset == 'credit':
+        assert args.group_method == 'sens'
+        data = BiClassBiAttrTrans()
     else:
         data_full = get_dataset(args, args.dataset, normalize_features=args.normalize_features)
         if args.group_method is None:
             data = Transd2Ind(data_full, keep_ratio=args.keep_ratio)
-        elif args.group_method == 'sens':
-            assert args.dataset.startswith('pokec')
-            data = BiSensAttrTrans(data_full, args.keep_ratio)
-        elif args.group_method == 'degree':
-            assert args.dataset in ['cora', 'citeseer']
-            data = DegreeGroupedTrans(data_full, args.keep_ratio, thres=args.groupby_degree_thres)
         else:
-            data = GroupedTrans(data_full, args.keep_ratio, args.group_method, group_num=args.group_num)
+            assert args.group_method == 'degree' and args.dataset in ['cora', 'citeseer']
+            data = DegreeGroupedTrans(data_full, args.keep_ratio, thres=args.groupby_degree_thres)
 
     if args.full_data:
         agent = GCondFullData(data, args, device='cuda')

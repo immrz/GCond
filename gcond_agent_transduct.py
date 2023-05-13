@@ -257,6 +257,7 @@ class GCond:
                 else:
                     samp_neig = None
 
+                outputs, batch_gids = [], []
                 for c in range(data.nclass):  # third loop - process each class separately
                     if samp_neig is not None:
                         batch_size, n_id, adjs = samp_neig[c]
@@ -275,11 +276,13 @@ class GCond:
                         train_gid = self.data.all_gid  # above is wrong, `n_id` indexes into the full graph
                         batch_gid = train_gid[n_id[:batch_size]]
                         assert batch_gid.min() >= 0
-                        loss_ot = self.demd_lambda * self.demd_layer(output, batch_gid)
-                        loss_ot.backward(retain_graph=True)  # accumulate model gradients
-                        loss_ot_accum += loss_ot.item() / self.demd_lambda
+                        outputs.append(output)
+                        batch_gids.append(batch_gid)
+                        # loss_ot = self.demd_lambda * self.demd_layer(output, batch_gid)
+                        # loss_ot.backward(retain_graph=True)  # accumulate model gradients
+                        # loss_ot_accum += loss_ot.item() / self.demd_lambda
 
-                    gw_real = torch.autograd.grad(loss_real, model_parameters)
+                    gw_real = torch.autograd.grad(loss_real, model_parameters, retain_graph=True)
                     gw_real = list((_.detach().clone() for _ in gw_real))
                     output_syn = model.forward(feat_syn, adj_syn_norm)
 
@@ -314,8 +317,12 @@ class GCond:
 
                 # update model
                 if self.demd_lambda >= 0:
+                    outputs = torch.cat(outputs, dim=0)
+                    batch_gids = torch.cat(batch_gids, dim=0).cuda()
+                    loss_ot = self.demd_layer(outputs, batch_gids)
+                    wandb.log({'loss_ot': loss_ot.item()}, step=self.global_step)
+                    (loss_ot * self.demd_lambda).backward()
                     optimizer_model.step()
-                    wandb.log({'loss_ot': loss_ot_accum}, step=self.global_step)
 
                 if args.debug and ol % 5 ==0:
                     print('Gradient matching loss:', loss.item())
@@ -394,7 +401,7 @@ def get_loops(args):
     # Get the two hyper-parameters of outer-loop and inner-loop.
     # The following values are empirically good.
     if args.one_step:
-        if args.dataset =='ogbn-arxiv':
+        if args.dataset in ['ogbn-arxiv', 'credit']:
             return 5, 0
         return 1, 0
     if args.dataset in ['ogbn-arxiv']:

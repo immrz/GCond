@@ -150,7 +150,7 @@ wandb/
 res_analysis/
 
 # standard outputs
-stdout/
+stdout*/
 
 # tests
 my_tests/
@@ -163,3 +163,6 @@ tmp/
 
 # third-party packages
 deeprobust/
+
+# scripts
+scripts/

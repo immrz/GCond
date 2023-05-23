@@ -190,6 +190,8 @@ class GroupedGraphSaint(DataGraphSAINT):
 
 
 class DegreeGroupedGraphSaintTrans(DataGraphSAINT):
+    """Transductive GraphSaint dataset, nodes grouped by degree. For Ogbn-arxiv.
+    """
     def __init__(self, dataset, thres, **kwargs):
         super().__init__(dataset, **kwargs)
         self.train_gid = torch.LongTensor(

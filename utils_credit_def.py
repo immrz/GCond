@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 import scipy.sparse as sp
@@ -22,13 +23,13 @@ def _feature_norm(features):
     return 2*(features - min_values)/(max_values-min_values) - 1
 
 
-def _load_credit(sens_attr="Age", predict_attr="NoDefaultNextMonth", label_number=6000):
-    idx_features_labels = pd.read_csv('./data/credit/credit.csv')
+def _load_credit(path='./data/credit', sens_attr="Age", predict_attr="NoDefaultNextMonth", label_number=6000):
+    idx_features_labels = pd.read_csv(f'{path}/credit.csv')
     header = list(idx_features_labels.columns)
     header.remove(predict_attr)
     header.remove('Single')
 
-    edges_unordered = np.genfromtxt('./data/credit/credit_edges.txt').astype('int')
+    edges_unordered = np.genfromtxt(f'{path}/credit_edges.txt').astype('int')
 
     features = sp.csr_matrix(idx_features_labels[header], dtype=np.float32)
     labels = idx_features_labels[predict_attr].values
@@ -75,9 +76,65 @@ def _load_credit(sens_attr="Age", predict_attr="NoDefaultNextMonth", label_numbe
     return data
 
 
+def _load_pokec(dataset, sens_attr='region', predict_attr='I_am_working_in_field', seed=20, path="./data/pokec/", label_number=500):
+    """Load data"""
+    print('Loading {} dataset from {}'.format(dataset, path))
+
+    idx_features_labels = pd.read_csv(os.path.join(path, "{}.csv".format(dataset)))
+    header = list(idx_features_labels.columns)
+    header.remove("user_id")
+
+    # header.remove(sens_attr)
+    header.remove(predict_attr)
+
+    features = sp.csr_matrix(idx_features_labels[header], dtype=np.float32)
+    labels = idx_features_labels[predict_attr].values
+
+    # build graph
+    idx = np.array(idx_features_labels["user_id"], dtype=int)
+    idx_map = {j: i for i, j in enumerate(idx)}  # user_id -> order
+    edges_unordered = np.genfromtxt(os.path.join(path, "{}_relationship.txt".format(dataset)), dtype=int)
+
+    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
+                     dtype=int).reshape(edges_unordered.shape)  # shape (E, 2)
+    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
+                        shape=(labels.shape[0], labels.shape[0]),
+                        dtype=np.float32)
+    # build symmetric adjacency matrix
+    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
+
+    features = np.array(features.todense())
+
+    import random
+    random.seed(seed)
+    label_idx = np.where(labels>=0)[0]
+    random.shuffle(label_idx)
+
+    idx_train = label_idx[:min(int(0.5 * len(label_idx)), label_number)]  # at most half of all data
+    idx_val = label_idx[int(0.5 * len(label_idx)):int(0.75 * len(label_idx))]  # a quarter of all data
+    idx_test = label_idx[int(0.75 * len(label_idx)):]
+
+    sens = idx_features_labels[sens_attr].values
+
+    sens_idx = set(np.where(sens >= 0)[0])  # this is meaningless since all elements are already non-negative
+    idx_test = np.asarray(list(sens_idx & set(idx_test)))
+
+    # binarize labels, map those greater than 1 to 1
+    labels[labels > 1] = 1
+    sens[sens > 0] = 1
+
+    data = _DataWrapper(features, labels, adj, idx_train, idx_val, idx_test, sens)
+    return data
+
+
 class BiClassBiAttrTrans(Transd2Ind):
-    def __init__(self):
-        data = _load_credit()
+    def __init__(self, dataset, data_root='./data'):
+        if dataset == 'credit':
+            data = _load_credit(path=f'{data_root}/credit')
+        else:
+            assert dataset.startswith('pokec')
+            data = _load_pokec('region_job' if dataset == 'pokec_z' else 'region_job_2', path=f'{data_root}/pokec')
+
         super().__init__(dpr_data=data, keep_ratio=1)
         self.sens = data.sens.astype('int')
 
@@ -111,13 +168,3 @@ class BiClassBiAttrTrans(Transd2Ind):
         res['group_acc'] = [acc_s0, acc_s1]
 
         return res
-
-
-def _fair_metric(pred, labels, sens):
-    idx_s0 = sens==0
-    idx_s1 = sens==1
-    idx_s0_y1 = np.bitwise_and(idx_s0, labels==1)
-    idx_s1_y1 = np.bitwise_and(idx_s1, labels==1)
-    parity = abs(sum(pred[idx_s0])/sum(idx_s0)-sum(pred[idx_s1])/sum(idx_s1))
-    equality = abs(sum(pred[idx_s0_y1])/sum(idx_s0_y1)-sum(pred[idx_s1_y1])/sum(idx_s1_y1))
-    return parity.item(), equality.item()

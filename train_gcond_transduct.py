@@ -100,9 +100,9 @@ def main():
         else:
             assert args.group_method == 'degree' and args.dataset == 'ogbn-arxiv'
             data = DegreeGroupedGraphSaintTrans(args.dataset, thres=args.groupby_degree_thres)
-    elif args.dataset == 'credit':
+    elif args.dataset in ['credit', 'pokec_z', 'pokec_n']:
         assert args.group_method == 'sens'
-        data = BiClassBiAttrTrans()
+        data = BiClassBiAttrTrans(args.dataset)
     else:
         data_full = get_dataset(args, args.dataset, normalize_features=args.normalize_features)
         if args.group_method is None:
@@ -117,14 +117,12 @@ def main():
             agent.train()
         else:
             agent.test()
-        exit(0)
-
-    agent = GCond(data, args, device='cuda')
-
-    if not args.load_exist:
-        agent.train()
     else:
-        agent.test_with_val(load_exist=True)
+        agent = GCond(data, args, device='cuda')
+        if not args.load_exist:
+            agent.train()
+        else:
+            agent.test_with_val(load_exist=True)
 
 
 if __name__ == '__main__':

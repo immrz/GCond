@@ -403,8 +403,10 @@ def get_loops(args):
     if args.one_step:
         if args.dataset in ['ogbn-arxiv', 'credit']:
             return 5, 0
+        elif args.dataset == 'cora':
+            return args.outer, 0
         return 1, 0
-    if args.dataset in ['ogbn-arxiv']:
+    if args.dataset in ['ogbn-arxiv', 'credit', 'pokec_z', 'pokec_n']:
         return args.outer, args.inner
     if args.dataset in ['cora']:
         return 20, 15 # sgc

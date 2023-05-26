@@ -11,7 +11,7 @@ from torch_geometric.data import NeighborSampler
 import torch.nn.functional as F
 from deeprobust.graph.utils import accuracy
 from collections import Counter
-from utils_fairness import groupby_degree, delta_std_parity
+from utils_degree_bias import groupby_degree, delta_std_parity
 
 
 class DataGraphSAINT:

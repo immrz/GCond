@@ -401,12 +401,12 @@ def get_loops(args):
     # Get the two hyper-parameters of outer-loop and inner-loop.
     # The following values are empirically good.
     if args.one_step:
-        if args.dataset in ['ogbn-arxiv', 'credit']:
+        if args.dataset in ['ogbn-arxiv', 'credit', 'cora']:
             return 5, 0
-        elif args.dataset == 'cora':
+        elif args.dataset in ['bail']:
             return args.outer, 0
         return 1, 0
-    if args.dataset in ['ogbn-arxiv', 'credit', 'pokec_z', 'pokec_n']:
+    if args.dataset in ['ogbn-arxiv', 'credit', 'bail', 'pokec_z', 'pokec_n']:
         return args.outer, args.inner
     if args.dataset in ['cora']:
         return 20, 15 # sgc

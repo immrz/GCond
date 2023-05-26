@@ -9,8 +9,8 @@ import torch.nn.functional as F
 from gcond_agent_transduct import GCond
 from train_full import GCondFullData
 from utils_graphsaint import DataGraphSAINT, DegreeGroupedGraphSaintTrans
-from utils_fairness import GroupedTrans, DegreeGroupedTrans
-from utils_credit_def import BiClassBiAttrTrans
+from utils_degree_bias import DegreeGroupedTrans
+from utils_attr_bias import BiClassBiAttrTrans
 import wandb
 
 
@@ -41,7 +41,7 @@ def main():
     parser.add_argument('--save_dir', type=str, default='saved_ours')
     parser.add_argument('--one_step', default=False, action='store_true')
     parser.add_argument('--load_exist', default=False, action='store_true')
-    parser.add_argument('--label_number', type=int, default=500)
+    parser.add_argument('--label_number', type=int, default=-1)
 
     # inner model
     parser.add_argument('--inner_model', default='gcn', type=str, choices=['gcn', 'appnp', 'gcn_pokec'])
@@ -100,9 +100,9 @@ def main():
         else:
             assert args.group_method == 'degree' and args.dataset == 'ogbn-arxiv'
             data = DegreeGroupedGraphSaintTrans(args.dataset, thres=args.groupby_degree_thres)
-    elif args.dataset in ['credit', 'pokec_z', 'pokec_n']:
+    elif args.dataset in ['credit', 'bail', 'pokec_z', 'pokec_n']:
         assert args.group_method == 'sens'
-        data = BiClassBiAttrTrans(args.dataset)
+        data = BiClassBiAttrTrans(args.dataset, label_number=args.label_number)
     else:
         data_full = get_dataset(args, args.dataset, normalize_features=args.normalize_features)
         if args.group_method is None:

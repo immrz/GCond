@@ -7,6 +7,8 @@ import torch
 from utils import get_dataset, Transd2Ind
 import torch.nn.functional as F
 from gcond_agent_transduct import GCond
+from adv_gcond_transduct import AdvGCond
+from reg_gcond_transduct import RegGCond
 from train_full import GCondFullData
 from utils_graphsaint import DataGraphSAINT, DegreeGroupedGraphSaintTrans
 from utils_degree_bias import DegreeGroupedTrans
@@ -67,6 +69,11 @@ def main():
     parser.add_argument('--wandb', type=str, default='disabled', choices=['online', 'offline', 'disabled'])
     parser.add_argument('--wandb_group', type=str, default=None)
 
+    # other baselines
+    parser.add_argument('--adv', action='store_true', default=False)
+    parser.add_argument('--adv_lambda', default=1, type=float)
+    parser.add_argument('--sp_reg', default=False, action='store_true')
+
     args = parser.parse_args()
 
     # torch.cuda.set_device(args.gpu_id)
@@ -85,7 +92,8 @@ def main():
                          'alpha', 'sgc', 'inner', 'outer', 'inner_model', 'group_method', 'group_num',
                          'full_data', 'full_data_epoch', 'full_data_lr', 'full_data_wd',
                          'label_number', 'inner_hidden', 'inner_nlayers', 'one_step', 'load_exist',
-                         'demd_lambda', 'demd_bins', 'groupby_degree_thres']
+                         'demd_lambda', 'demd_bins', 'groupby_degree_thres',
+                         'adv', 'adv_lambda', 'sp_reg']
     wandb_config = {k: getattr(args, k) for k in wandb_config_keys}
     wandb_group = args.wandb_group or ('Full Data' if args.full_data else 'Condensed')
     wandb.init(mode=args.wandb,
@@ -117,6 +125,13 @@ def main():
             agent.train()
         else:
             agent.test()
+    elif args.adv:
+        assert not args.sp_reg, 'adv and sp_reg cannot be true simultaneously'
+        agent = AdvGCond(data, args, device='cuda')
+        agent.train()
+    elif args.sp_reg:
+        agent = RegGCond(data, args, device='cuda')
+        agent.train()
     else:
         agent = GCond(data, args, device='cuda')
         if not args.load_exist:

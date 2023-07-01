@@ -19,6 +19,7 @@ from models.mycheby import Cheby
 from models.mygraphsage import GraphSage
 from models.gat import GAT
 import scipy.sparse as sp
+import pandas as pd
 
 
 class Evaluator:
@@ -107,13 +108,17 @@ class Evaluator:
         else:
             # Full graph
             output = model.predict(data.feat_full, data.adj_full)
-            loss_test = F.nll_loss(output[data.idx_test], labels_test)
-            acc_test = utils.accuracy(output[data.idx_test], labels_test)
-            res.append(acc_test.item())
+            test_res = self.data.compute_test_metric(output)
+            res = {k: v for k, v in test_res.items() if k in ['acc', 'loss', 'parity', 'equality', 'std', 'delta']}
+
+            # output = model.predict(data.feat_full, data.adj_full)
+            # loss_test = F.nll_loss(output[data.idx_test], labels_test)
+            # acc_test = utils.accuracy(output[data.idx_test], labels_test)
+            # res.append(acc_test.item())
             if verbose:
                 print("Test set results:",
-                      "loss= {:.4f}".format(loss_test.item()),
-                      "accuracy= {:.4f}".format(acc_test.item()))
+                      "loss= {:.4f}".format(res['loss']),
+                      "accuracy= {:.4f}".format(res['acc']))
 
         labels_train = torch.LongTensor(data.labels_train).cuda()
         output = model.predict(data.feat_train, data.adj_train)
@@ -123,7 +128,7 @@ class Evaluator:
             print("Train set results:",
                   "loss= {:.4f}".format(loss_train.item()),
                   "accuracy= {:.4f}".format(acc_train.item()))
-        res.append(acc_train.item())
+        # res.append(acc_train.item())
         return res
 
     def get_syn_data(self, model_type=None):
@@ -132,8 +137,8 @@ class Evaluator:
                                 self.adj_param.detach(), self.labels_syn
 
         args = self.args
-        adj_syn = torch.load(f'saved_ours/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt', map_location='cuda')
-        feat_syn = torch.load(f'saved_ours/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt', map_location='cuda')
+        adj_syn = torch.load(f'{args.save_dir}/adj_{args.dataset}_{args.reduction_rate}_{args.seed}.pt', map_location='cuda')
+        feat_syn = torch.load(f'{args.save_dir}/feat_{args.dataset}_{args.reduction_rate}_{args.seed}.pt', map_location='cuda')
 
         if model_type == 'MLP':
             adj_syn = adj_syn.to(self.device)
@@ -206,13 +211,17 @@ class Evaluator:
         else:
             # Full graph
             output = model.predict(data.feat_full, data.adj_full)
-            loss_test = F.nll_loss(output[data.idx_test], labels_test)
-            acc_test = utils.accuracy(output[data.idx_test], labels_test)
-            res.append(acc_test.item())
+            test_res = self.data.compute_test_metric(output)
+            res = {k: v for k, v in test_res.items() if k in ['acc', 'loss', 'parity', 'equality', 'std', 'delta']}
+
+            # output = model.predict(data.feat_full, data.adj_full)
+            # loss_test = F.nll_loss(output[data.idx_test], labels_test)
+            # acc_test = utils.accuracy(output[data.idx_test], labels_test)
+            # res.append(acc_test.item())
             if verbose:
                 print("Test full set results:",
-                      "loss= {:.4f}".format(loss_test.item()),
-                      "accuracy= {:.4f}".format(acc_test.item()))
+                      "loss= {:.4f}".format(res['loss']),
+                      "accuracy= {:.4f}".format(res['acc']))
 
             labels_train = torch.LongTensor(data.labels_train).cuda()
             output = model.predict(data.feat_train, data.adj_train)
@@ -222,7 +231,7 @@ class Evaluator:
                 print("Train set results:",
                       "loss= {:.4f}".format(loss_train.item()),
                       "accuracy= {:.4f}".format(acc_train.item()))
-            res.append(acc_train.item())
+            # res.append(acc_train.item())
         return res
 
     def train(self, verbose=True):
@@ -237,22 +246,30 @@ class Evaluator:
             nlayer = 2
             for i in range(runs):
                 res.append(self.test(nlayer, verbose=False, model_type=model_type))
-            res = np.array(res)
-            print('Test/Train Mean Accuracy:',
-                    repr([res.mean(0), res.std(0)]))
-            final_res[model_type] = [res.mean(0), res.std(0)]
+            # res = np.array(res)
+            res = {k: np.array([r[k] for r in res]) for k in res[0].keys()}
+            # print('Test/Train Mean Accuracy:',
+            #         repr([res.mean(0), res.std(0)]))
+            # final_res[model_type] = [res.mean(0), res.std(0)]
+            print('Test Mean Accuracy: ', res['acc'].mean())
+            final_res[model_type] = {k: res[k].mean() for k in res.keys()}
 
 
-        print('=== testing GAT')
-        res = []
-        nlayer = 2
-        for i in range(runs):
-            res.append(self.test_gat(verbose=True, nlayers=nlayer, model_type='GAT'))
-        res = np.array(res)
-        print('Layer:', nlayer)
-        print('Test/Full Test/Train Mean Accuracy:',
-                repr([res.mean(0), res.std(0)]))
-        final_res['GAT'] = [res.mean(0), res.std(0)]
+        # print('=== testing GAT')
+        # res = []
+        # nlayer = 2
+        # for i in range(runs):
+        #     res.append(self.test_gat(verbose=True, nlayers=nlayer, model_type='GAT'))
+        # # res = np.array(res)
+        # res = {k: np.array([r[k] for r in res]) for k in res[0].keys()}
+        # # print('Layer:', nlayer)
+        # # print('Test/Full Test/Train Mean Accuracy:',
+        # #         repr([res.mean(0), res.std(0)]))
+        # # final_res['GAT'] = [res.mean(0), res.std(0)]
+        # print('Test Mean Accuracy: ', res['acc'].mean())
+        # final_res['GAT'] = {k: res[k].mean() for k in res.keys()}
+
+        final_res = pd.DataFrame(final_res)
 
         print('Final result:', final_res)
-
+        final_res.to_csv(f'./res_analysis/credit_other_arch_{args.suffix}_{args.seed}.csv')

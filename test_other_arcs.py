@@ -9,6 +9,7 @@ from utils import *
 import torch.nn.functional as F
 from tester_other_arcs import Evaluator
 from utils_graphsaint import DataGraphSAINT
+from utils_attr_bias import BiClassBiAttrTrans
 
 
 parser = argparse.ArgumentParser()
@@ -26,9 +27,11 @@ parser.add_argument('--mlp', type=int, default=0)
 parser.add_argument('--inner', type=int, default=0)
 parser.add_argument('--epsilon', type=float, default=-1)
 parser.add_argument('--nruns', type=int, default=20)
+parser.add_argument('--save_dir', type=str, default=None)
+parser.add_argument('--suffix', type=str, required=True)
 args = parser.parse_args()
 
-torch.cuda.set_device(args.gpu_id)
+# torch.cuda.set_device(args.gpu_id)
 
 # random seed setting
 random.seed(args.seed)
@@ -47,6 +50,8 @@ data_graphsaint = ['flickr', 'reddit', 'ogbn-arxiv']
 if args.dataset in data_graphsaint:
     data = DataGraphSAINT(args.dataset)
     data_full = data.data_full
+elif args.dataset in ['credit']:
+    data = BiClassBiAttrTrans(args.dataset)
 else:
     data_full = get_dataset(args.dataset, args.normalize_features)
     data = Transd2Ind(data_full, keep_ratio=args.keep_ratio)

@@ -24,10 +24,13 @@ class SageConvolution(Module):
         self.out_features = out_features
         self.weight_l = Parameter(torch.FloatTensor(in_features, out_features))
         self.bias_l = Parameter(torch.FloatTensor(out_features))
-        self.weight_r = Parameter(torch.FloatTensor(in_features, out_features))
-        self.bias_r = Parameter(torch.FloatTensor(out_features))
-        self.reset_parameters()
+
+        if root_weight:
+            self.weight_r = Parameter(torch.FloatTensor(in_features, out_features))
+            self.bias_r = Parameter(torch.FloatTensor(out_features))
+
         self.root_weight = root_weight
+        self.reset_parameters()
         # self.weight = Parameter(torch.FloatTensor(out_features, in_features))
         # self.linear = torch.nn.Linear(self.in_features, self.out_features)
 
@@ -37,9 +40,10 @@ class SageConvolution(Module):
         self.weight_l.data.uniform_(-stdv, stdv)
         self.bias_l.data.uniform_(-stdv, stdv)
 
-        stdv = 1. / math.sqrt(self.weight_r.T.size(1))
-        self.weight_r.data.uniform_(-stdv, stdv)
-        self.bias_r.data.uniform_(-stdv, stdv)
+        if self.root_weight:
+            stdv = 1. / math.sqrt(self.weight_r.T.size(1))
+            self.weight_r.data.uniform_(-stdv, stdv)
+            self.bias_r.data.uniform_(-stdv, stdv)
 
     def forward(self, input, adj, size=None):
         """ Graph Convolutional Layer forward function

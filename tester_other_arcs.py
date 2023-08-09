@@ -272,4 +272,5 @@ class Evaluator:
         final_res = pd.DataFrame(final_res)
 
         print('Final result:', final_res)
-        final_res.to_csv(f'./res_analysis/credit_other_arch_{args.suffix}_{args.seed}.csv')
+        if args.save_as_csv:
+            final_res.to_csv(f'./res_analysis/all_datasets_other_arch/{args.dataset}_other_arch_{args.suffix}_{args.seed}.csv')

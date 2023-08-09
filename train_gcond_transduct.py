@@ -50,6 +50,9 @@ def main():
     parser.add_argument('--inner_hidden', type=int, default=256)
     parser.add_argument('--inner_nlayers', type=int, default=3)
 
+    # condensation model
+    parser.add_argument('--cond_model', type=str, default=None, choices=['gcn', 'appnp1', 'sage'])
+
     # fair arguments
     parser.add_argument('--group_method', type=str, default=None, choices=['agg', 'geo', 'sens', 'degree'])
     parser.add_argument('--group_num', type=int, default=5)
@@ -93,7 +96,7 @@ def main():
                          'full_data', 'full_data_epoch', 'full_data_lr', 'full_data_wd',
                          'label_number', 'inner_hidden', 'inner_nlayers', 'one_step', 'load_exist',
                          'demd_lambda', 'demd_bins', 'groupby_degree_thres',
-                         'adv', 'adv_lambda', 'sp_reg']
+                         'adv', 'adv_lambda', 'sp_reg', 'cond_model']
     wandb_config = {k: getattr(args, k) for k in wandb_config_keys}
     wandb_group = args.wandb_group or ('Full Data' if args.full_data else 'Condensed')
     wandb.init(mode=args.wandb,

@@ -15,6 +15,7 @@ from models.myappnp1 import APPNP1
 from models.sgc import SGC
 from models.sgc_multi import SGC as SGC1
 from models.parametrized_adj import PGE
+from models.mygraphsage import GraphSage as SAGE
 import scipy.sparse as sp
 from torch_sparse import SparseTensor
 import wandb
@@ -191,6 +192,9 @@ class GCond:
             print("Pre-sampled neighbors not found. Sample the neighbors with retrieve_class_sampler method instead.")
             samp_neig_it = None
 
+        if args.cond_model is not None:
+            print(f"Forced to use {args.cond_model.upper()} for condensation!!!")
+
         for it in range(args.epochs+1):
             loss_avg = 0  # loss over one epoch of training condensed graph
 
@@ -219,6 +223,15 @@ class GCond:
                                 dropout=args.dropout,
                                 nlayers=args.nlayers,
                                 device=self.device).to(self.device)
+
+            if args.cond_model is not None:
+                cond_model = args.cond_model.upper()
+                model = eval(cond_model)(nfeat=data.feat_train.shape[1],
+                                         nhid=args.hidden,
+                                         nclass=data.nclass,
+                                         dropout=args.dropout,
+                                         nlayers=args.nlayers,
+                                         device=self.device).to(self.device)
 
             model.initialize()  # first loop - sample initial parameters for the condensation model
 

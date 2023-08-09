@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from tester_other_arcs import Evaluator
 from utils_graphsaint import DataGraphSAINT
 from utils_attr_bias import BiClassBiAttrTrans
+from utils_degree_bias import DegreeGroupedTrans
+from utils_graphsaint import DegreeGroupedGraphSaintTrans
 
 
 parser = argparse.ArgumentParser()
@@ -29,6 +31,7 @@ parser.add_argument('--epsilon', type=float, default=-1)
 parser.add_argument('--nruns', type=int, default=20)
 parser.add_argument('--save_dir', type=str, default=None)
 parser.add_argument('--suffix', type=str, required=True)
+parser.add_argument('--save_as_csv', type=int, default=1)
 args = parser.parse_args()
 
 # torch.cuda.set_device(args.gpu_id)
@@ -46,15 +49,17 @@ else:
 
 print(args)
 
-data_graphsaint = ['flickr', 'reddit', 'ogbn-arxiv']
-if args.dataset in data_graphsaint:
-    data = DataGraphSAINT(args.dataset)
-    data_full = data.data_full
-elif args.dataset in ['credit']:
-    data = BiClassBiAttrTrans(args.dataset)
+if args.dataset == 'ogbn-arxiv':
+    data = DegreeGroupedGraphSaintTrans('ogbn-arxiv', thres=5.5)
+elif args.dataset == 'cora':
+    data_full = get_dataset(args, args.dataset, normalize_features=True)
+    data = DegreeGroupedTrans(data_full, keep_ratio=1, thres=3)
+elif args.dataset == 'bail':
+    data = BiClassBiAttrTrans('bail', label_number=1000)
+elif args.dataset == 'credit':
+    data = BiClassBiAttrTrans('credit')
 else:
-    data_full = get_dataset(args.dataset, args.normalize_features)
-    data = Transd2Ind(data_full, keep_ratio=args.keep_ratio)
+    raise ValueError
 
 agent = Evaluator(data, args, device='cuda')
 agent.train()
